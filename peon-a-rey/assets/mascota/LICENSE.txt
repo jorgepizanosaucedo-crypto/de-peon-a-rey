@@ -1,0 +1,9 @@
+Karen, la mascota de De Peón a Rey
+
+El dibujo del personaje Karen (los archivos de esta carpeta, sus variantes y las capturas de pantalla
+donde aparece) NO forma parte de la licencia GPLv3 del código de este proyecto.
+
+© 2026 Los autores de De Peón a Rey. Todos los derechos reservados.
+
+Se puede ver y usar únicamente como parte de De Peón a Rey. No se permite copiarlo, modificarlo,
+redistribuirlo ni usarlo en otros proyectos sin permiso por escrito de sus autores.

@@ -1,0 +1,16 @@
+{
+  "name": "De Peón a Rey",
+  "short_name": "Peón a Rey",
+  "description": "Entrenador de táctica de ajedrez gratuito.",
+  "lang": "es",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f4f2f8",
+  "theme_color": "#5b41a0",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" },
+    { "src": "favicon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ]
+}
