@@ -199,8 +199,7 @@ function schOpen(id) {
   root.append(
     h('div', { class: 'ls-head' },
       h('button', { class: 'icon-btn', 'aria-label': 'Salir de la lección', onclick: () => schAskExit() }, icon('i-close')),
-      h('div', { class: 't' }, h('div', { class: 'k' }, x.b.name), h('h2', null, x.l.name))),
-    prog,
+      h('div', { class: 't' }, h('div', { class: 'ls-tl' }, h('h2', null, x.l.name), h('span', null, x.b.name)), prog)),
     h('div', { class: 'ls-grid' },
       h('div', { class: 'ls-karen' }, h('div', { class: 'kf' }, LS.fig.body), bub),
       h('div', { class: 'ls-stage' }, host, panel, info),
@@ -243,6 +242,9 @@ function schActs(...nodes) {
   if (!LS) return;
   LS.acts.textContent = ''; LS.acts.append(...nodes.flat().filter(Boolean));
   const nx = $('.ls-next', LS.acts); if (nx) setTimeout(() => { if (nx.isConnected) nx.focus({ preventScroll: true }); }, 30);
+  // en pantallas chicas: si los botones quedaron abajo de la pantalla, se suben a la vista
+  const last = LS.acts.lastElementChild;
+  if (last) setTimeout(() => { if (last.isConnected && last.getBoundingClientRect().bottom > innerHeight - 4) last.scrollIntoView({ block: 'end', behavior: reduceMotion ? 'auto' : 'smooth' }); }, 60);
 }
 function schNextBtn(label, fn) { return h('button', { class: 'btn primary ls-next', onclick: fn || (() => schNext()) }, label || 'Siguiente'); }
 function schInfo(text) { if (LS) LS.info.textContent = text || ''; }

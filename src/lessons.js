@@ -237,7 +237,7 @@ const SCHOOL = {
           { say: ['En los finales el rey se vuelve un luchador, y hay trucos para calcular rápido.', 'La regla del cuadrado: imagina un cuadrado desde el peón hasta la fila donde corona. Si el rey enemigo puede entrar en él, alcanza al peón.'], fen: '8/8/8/6k1/P7/8/8/K7 b - - 0 1', marks: ['a4', 'b4', 'c4', 'd4', 'e4', 'e5', 'e6', 'e7', 'e8', 'a8', 'b8', 'c8', 'd8', 'a5', 'a6', 'a7'], mood: 'think', emote: 'idea' },
           { quiz: 'Juegan negras. ¿Alcanza el rey negro al peón?', fen: '8/8/8/6k1/P7/8/8/K7 b - - 0 1', opts: ['Sí', 'No, el peón corona'], ans: 1, why: 'El cuadrado va de a4 a e8. El rey, desde g5, no puede entrar en él en una jugada.' },
           { quiz: '¿Y desde f5?', fen: '8/8/8/5k2/P7/8/8/K7 b - - 0 1', opts: ['Sí, lo alcanza', 'No, el peón corona'], ans: 0, why: 'Con Re5 o Re4 entra en el cuadrado y llega a tiempo.' },
-          { play: { fen: '8/8/8/6k1/P7/8/8/K7 w - - 0 1', side: 'w', goal: 'promote', n: 6, level: 4 }, say: 'Comprueba la regla: corona tu peón antes de que lo alcance.' },
+          { play: { fen: '8/8/8/6k1/P7/8/8/K7 w - - 0 1', side: 'w', goal: 'promote', n: 8, level: 4 }, say: 'Comprueba la regla: corona tu peón antes de que lo alcance.' },
           { recap: ['Imagina el cuadrado del peón hasta su casilla de coronación.', 'Si el rey enemigo entra en él, alcanza al peón.', 'Te ahorra calcular jugada por jugada.'] },
         ] },
         { id: 'oposicion', name: 'La oposición', piece: 'k', steps: [

@@ -477,7 +477,7 @@ class Engine {
   }
 }
 const engine = new Engine();
-const APP_VERSION = '2.0';
+const APP_VERSION = '2.1';
 
 // ---------------------------------------------------------------- sonido y celebraciones
 // Sonidos sintetizados con Web Audio: no hay archivos que descargar y funcionan sin conexión.
@@ -843,6 +843,7 @@ const MASCOT = {
   talkFrame: 'habla', blinkFrame: 'parpadeo',
 };
 const MV = { x: -90, y: -210, w: 620, h: 1312 }; // lienzo con espacio para reacciones arriba y a los lados
+const KHEAD = { x: 30, y: -6, w: 310, h: 310 };   // solo la cara, para el circulito junto al tablero
 const INK = '#1b1424', RED = '#e3141b';
 const star4 = (x, y, r, fill, d = 0) => `<path class="tw" style="animation-delay:${d}s" d="M${x} ${y - r}Q${x} ${y} ${x + r} ${y}Q${x} ${y} ${x} ${y + r}Q${x} ${y} ${x - r} ${y}Q${x} ${y} ${x} ${y - r}Z" fill="${fill}" stroke="${INK}" stroke-width="6" stroke-linejoin="round"/>`;
 const zpath = (x, y, w) => `<path d="M${x} ${y}h${w}l${-w} ${w}h${w}" fill="none" stroke="${INK}" stroke-width="${Math.max(7, w / 5)}" stroke-linecap="round" stroke-linejoin="round"/>`;
@@ -1040,8 +1041,9 @@ const Mascot = {
     if (!o.force && (!this.enabled() || document.body.classList.contains('gated'))) return false;
     if (!o.force && Date.now() - this.lastAt < (o.gap == null ? 15000 : o.gap)) return false;
     this.lastAt = Date.now();
+    if (!o.mode && Music.view === 'play') return this.sayInline(text, o);
     const was = this.shown;
-    this.layout(o.mode || (Music.view === 'play' ? 'play' : 'tip'));
+    this.layout(o.mode || 'tip');
     this.pose(o); this.show();
     const p = h('p'); this.bub.textContent = '';
     this.bub.append(h('span', { class: 'm-name' }, MASCOT.name), p, h('span', { class: 'm-close', 'aria-hidden': 'true' }, '×'));
@@ -1051,6 +1053,25 @@ const Mascot = {
     this.timers.auto = setTimeout(() => this.hide(), o.ms || clamp(3200 + text.length * 55, 4500, 11000));
     return true;
   },
+  // En los puzzles Karen no flota encima: aparece junto al tablero (o en el resultado) y empuja lo demás hacia abajo.
+  noteTy: new Typer(),
+  sayInline(text, o = {}) {
+    const anchor = $('#view-play .result .stat-grid') || $('#view-play #status');
+    if (!anchor || $('#view-play').hidden) return false;
+    this.clearNote(true);
+    const fig = new KarenFig(KHEAD), p = h('p');
+    const close = () => { this.noteTy.stop(); note.classList.add('out'); setTimeout(() => note.remove(), 220); };
+    const note = h('div', { class: 'k-note', role: 'status', 'aria-live': 'polite', onclick: () => (this.noteTy.cur ? this.noteTy.finish() : close()) },
+      h('div', { class: 'k-face', 'aria-hidden': 'true' }, fig.body),
+      h('div', { class: 'speech k-say' }, h('span', { class: 'm-name' }, MASCOT.name), p, h('span', { class: 'm-close', 'aria-hidden': 'true' }, '×')));
+    const acts = $('#view-play #actions');
+    if (anchor.id === 'status' && acts && innerHeight < 700 && !matchMedia('(orientation: landscape)').matches) acts.after(note);
+    else if (anchor.id === 'status') anchor.after(note); else anchor.before(note);
+    fig.pose(o); Sound.play('pop');
+    this.noteTy.type(p, text, fig);
+    return true;
+  },
+  clearNote(now) { this.noteTy.stop(); for (const n of $$('.k-note')) { if (now) n.remove(); else { n.classList.add('out'); setTimeout(() => n.remove(), 220); } } },
   react(kind, d = {}) {
     const name = (S.profile && S.profile.name) || '';
     const say = (text, o) => this.say(text, o);
@@ -1268,6 +1289,8 @@ function showView(name) {
   for (const v of $$('.view')) v.hidden = v.dataset.view !== name;
   $('#tabbar').hidden = name === 'play' || name === 'lesson';
   document.body.classList.toggle('in-school', name === 'school' || name === 'lesson');
+  document.body.classList.toggle('in-lesson', name === 'lesson');
+  document.body.classList.toggle('in-play', name === 'play');
   if (name === 'lesson') $('#app').classList.add('wide');
   window.scrollTo({ top: 0 });
 }
@@ -1457,8 +1480,8 @@ function renderMap(scroll) {
   root.append(h('p', { class: 'credits' }, 'Los números junto a cada nivel son la dificultad estimada (escala de rating). Las vidas se recuperan solas: una cada 20 minutos.'));
   if (tokenHopPending && currentNode) {
     const go = tokenHopPending; tokenHopPending = null; mapScrolled = true;
-    setTimeout(() => { currentNode.scrollIntoView({ block: 'center', behavior: 'smooth' }); setTimeout(go, 520); }, 60);
-  } else if (scroll && currentNode && !mapScrolled && Object.keys(S.levels).length) { mapScrolled = true; setTimeout(() => currentNode.scrollIntoView({ block: 'center', behavior: reduceMotion ? 'auto' : 'smooth' }), 60); }
+    setTimeout(() => { if (Music.view !== 'map' || !currentNode.isConnected) return; currentNode.scrollIntoView({ block: 'center', behavior: 'smooth' }); setTimeout(go, 520); }, 60);
+  } else if (scroll && currentNode && !mapScrolled && Object.keys(S.levels).length) { mapScrolled = true; setTimeout(() => { if (Music.view === 'map' && currentNode.isConnected) currentNode.scrollIntoView({ block: 'center', behavior: reduceMotion ? 'auto' : 'smooth' }); }, 60); }
   tokenHopPending = null;
 }
 
@@ -1525,6 +1548,7 @@ function startSession(opts) {
   loadPuzzle();
 }
 function exitSession() {
+  Mascot.clearNote(true);
   session = null; if (board) { board.setInteractive(false); board.setPick(null); }
   setTab(currentTab === 'play' ? 'map' : currentTab);
 }
@@ -1543,6 +1567,8 @@ function setActions(...btns) { const el = $('#actions'); el.textContent = ''; el
 
 function loadPuzzle() {
   const p = session.puzzles[session.i];
+  Mascot.clearNote(true);
+  if (session.cheerNext) { session.cheerNext = false; const s0 = session; setTimeout(() => { if (session === s0 && st && st.p === p) Mascot.react('streak'); }, 1200); }
   st = { p, step: 0, mistakes: 0, hint: false, over: false, busy: false };
   markSeen(p);
   renderPips();
@@ -1794,10 +1820,7 @@ function record(sc) {
   if (sc > 0) { S.solved++; touchStreak(); }
   // tres seguidos sin ayuda: Karen festeja (una vez por sesión)
   session.run = sc === 1 ? (session.run || 0) + 1 : 0;
-  if (session.run === 3 && !session.cheered && session.i < session.puzzles.length - 1) {
-    session.cheered = true; const s0 = session;
-    setTimeout(() => { if (session === s0) Mascot.react('streak'); }, 700);
-  }
+  if (session.run === 3 && !session.cheered && session.i < session.puzzles.length - 1) { session.cheered = true; session.cheerNext = true; }
   if (session.kind === 'daily') {
     S.daily[session.date] = { n: dailyNumber(session.date), res: session.results.slice(0, session.i + 1), ms: session.msBefore + (Date.now() - session.t0), done: false };
     const keys = Object.keys(S.daily).sort(); while (keys.length > 60) delete S.daily[keys.shift()];
@@ -2974,7 +2997,13 @@ function tourGo(i) {
   if (el && !st0.fixed) { const r = el.getBoundingClientRect(); window.scrollTo(0, window.scrollY + r.top - Math.max(76, innerHeight * 0.14)); }
   renderTourBubble();
   if (tour.i > 0 || Mascot.shown) Mascot.pose(st0);
-  requestAnimationFrame(() => requestAnimationFrame(placeTour));
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    placeTour();
+    // pantallas bajitas: si el globo alcanza lo señalado, se sube un poco la página
+    if (!tour || !el || st0.fixed) return;
+    const r = el.getBoundingClientRect(), b = tour.bub.getBoundingClientRect(), over = r.bottom + 10 - b.top;
+    if (over > 0) { const room = Math.max(0, r.top - 58); if (room > 0) { window.scrollTo(0, window.scrollY + Math.min(over, room)); placeTour(); } }
+  }));
   if (tour.i > 0) Sound.play('hint');
 }
 function renderTourBubble() {
@@ -3001,6 +3030,11 @@ function placeTour() {
   const g = Mascot.geo || Mascot.layout('tour');
   Object.assign(bub.style, { left: g.left + 'px', bottom: g.bottom + 'px', width: Math.min(360, g.maxW) + 'px' });
   bub.classList.toggle('above', g.above);
+  // pantallas chicas: si el globo alcanza lo señalado, baja (sin salirse de la pantalla)
+  if (el && !g.above) {
+    const r = el.getBoundingClientRect(), b = bub.getBoundingClientRect(), over = r.bottom + 10 - b.top;
+    if (over > 0 && r.top < b.top) bub.style.bottom = Math.max(8, g.bottom - over) + 'px';
+  }
   if (!el) {
     hole.classList.add('none');
     Object.assign(hole.style, { left: innerWidth / 2 + 'px', top: innerHeight / 2 + 'px', width: '0px', height: '0px' });
@@ -3008,7 +3042,9 @@ function placeTour() {
   }
   hole.classList.remove('none');
   const r = el.getBoundingClientRect();
-  Object.assign(hole.style, { left: (r.left - pad) + 'px', top: (r.top - pad) + 'px', width: (r.width + pad * 2) + 'px', height: (r.height + pad * 2) + 'px' });
+  // el recuadro no se sale de la pantalla (las pestañas de abajo quedan pegadas al borde)
+  const top = Math.max(2, r.top - pad), bottom = Math.min(innerHeight - 2, r.bottom + pad), left = Math.max(2, r.left - pad), right = Math.min(innerWidth - 2, r.right + pad);
+  Object.assign(hole.style, { left: left + 'px', top: top + 'px', width: (right - left) + 'px', height: (bottom - top) + 'px' });
 }
 function tourNext() { if (!tour) return; if (tour.i >= tour.steps.length - 1) finishTour(true); else tourGo(tour.i + 1); }
 function finishTour(play, silent) {
