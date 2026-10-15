@@ -469,7 +469,7 @@ class Engine {
   }
 }
 const engine = new Engine();
-const APP_VERSION = '1.3';
+const APP_VERSION = '1.4';
 
 // ---------------------------------------------------------------- sonido y celebraciones
 // Sonidos sintetizados con Web Audio: no hay archivos que descargar y funcionan sin conexión.
@@ -712,7 +712,7 @@ const Music = {
 }
 
 // ---------------------------------------------------------------- mascota
-// Personaje original del proyecto. Con un solo dibujo se anima por capas: el cuerpo respira, salta y se inclina,
+// Personaje ilustrado por Karen. Con un solo dibujo se anima por capas: el cuerpo respira, salta y se inclina,
 // encima aparecen reacciones estilo manga (gota, brillos, "!", idea…) y accesorios (corona, lentes, lupa…).
 // Cuando haya más dibujos del mismo tamaño (expresiones, parpadeo, boca hablando, saludo) basta con
 // agregarlos a MASCOT.frames con su nombre: la mascota los usa sola.
@@ -754,7 +754,7 @@ const TIP_POOL = [
   { mood: 'think', emote: 'question', text: '¿Ya leíste la lección del mundo? Toca "Ver lección" antes de jugar un tema nuevo.' },
   { mood: 'point', emote: 'sparkle', text: 'El reto diario es el mismo para todos. Compártelo y compárate con tus amigos.' },
   { mood: 'think', prop: ['glasses', 'magnifier'], text: 'Analiza tus partidas: cada error grave se vuelve un puzzle hecho para ti.' },
-  { mood: 'happy', emote: 'notes', text: 'Si la música te distrae, la apagas en el botón de sonido de arriba.' },
+  { mood: 'happy', emote: 'notes', text: 'Si la música te distrae, toca tu foto arriba a la derecha y apágala.' },
   { mood: 'think', prop: 'glasses', emote: 'idea', text: 'Las piezas sin defensa son las primeras que hay que mirar: las tuyas y las del rival.' },
   { mood: 'point', emote: 'idea', text: 'Un jaque obliga al rival a responder. Por eso las mejores tácticas casi siempre empiezan con uno.' },
 ];
@@ -1138,26 +1138,33 @@ function renderChips() {
   c.append(life,
     h('span', { class: 'chip', title: 'Estrellas' }, icon('i-star', 'star'), String(totalStars())),
     h('button', { class: 'chip chip-btn rank-chip', type: 'button', title: `Rango: ${rankOf().name} · rating táctico ${Math.round(S.rating)}`, 'aria-label': `Rango ${rankOf().name}, rating táctico ${Math.round(S.rating)}. Ver progreso`, onclick: () => { if (!session) setTab('progress'); } }, miniPiece(rankOf().p), String(Math.round(S.rating))),
-    h('button', { class: 'chip chip-btn', type: 'button', id: 'sound-chip', 'aria-label': 'Sonido, música y consejos', 'aria-haspopup': 'dialog', onclick: e => toggleQuickMenu(e.currentTarget) },
-      icon(S.settings.sound === false && S.settings.music === false ? 'i-sound-off' : 'i-sound-on')));
+    h('button', { class: 'chip chip-btn me-chip', type: 'button', id: 'me-chip', title: (S.profile && S.profile.name) || 'Tu perfil', 'aria-label': 'Tu perfil: sonido, consejos y cerrar sesión', 'aria-haspopup': 'dialog', onclick: e => toggleQuickMenu(e.currentTarget) },
+      avatarEl('me-av'), S.settings.sound === false && S.settings.music === false ? icon('i-sound-off', 'me-mute') : null));
 }
-// Menú rápido del botón de sonido: efectos, música y consejos de la mascota.
+// Menú de tu foto: cuenta, efectos, música, consejos de la mascota y cerrar sesión.
 function toggleQuickMenu(btn) {
   const old = $('.qmenu'); if (old) { old._off(); return; }
+  const P = S.profile || {}, A = S.account || {}, signed = A.provider === 'firebase' && !!Auth.user;
   const row = (label, sub, on, apply) => {
     const inp = h('input', { type: 'checkbox', role: 'switch', class: 'switch' }); inp.checked = on;
     inp.addEventListener('change', () => { apply(inp.checked); save(); renderChips(); });
     return h('label', { class: 'qrow' }, h('span', null, h('strong', null, label), h('small', null, sub)), inp);
   };
-  const m = h('div', { class: 'qmenu', role: 'dialog', 'aria-label': 'Sonido, música y consejos' },
+  const go = fn => () => { m._off(); fn(); };
+  const m = h('div', { class: 'qmenu', role: 'dialog', 'aria-label': 'Tu perfil' },
+    h('div', { class: 'qhead' }, avatarEl(), h('div', { class: 'qwho' }, h('strong', null, P.name || 'Jugador'), h('small', null, signed ? (A.email || 'Cuenta conectada') : 'Perfil en este navegador'))),
     row('Efectos', 'Piezas, aciertos y errores', S.settings.sound !== false, v => { S.settings.sound = v; if (v) Sound.play('move'); }),
     row('Música', 'Fondo tranquilo en los menús', S.settings.music !== false, v => { S.settings.music = v; Music.gesture = true; Music.update(); }),
     row(`Consejos de ${MASCOT.name}`, 'Aparece de vez en cuando', S.settings.mascot !== false, v => {
       S.settings.mascot = v;
       if (!v) Mascot.hide(); else Mascot.say('¡Aquí sigo! Te daré un consejo de vez en cuando.', { mood: 'wave', emote: 'sparkle', force: true });
-    }));
-  const close = e => { if (!m.contains(e.target) && !(e.target.closest && e.target.closest('#sound-chip'))) m._off(); };
-  const key = e => { if (e.key === 'Escape') { m._off(); const b = $('#sound-chip'); if (b) b.focus(); } };
+    }),
+    h('div', { class: 'qacts' },
+      h('button', { class: 'qbtn', type: 'button', onclick: go(() => { if (session) exitSession(); gate('profile', { edit: true }); }) }, 'Editar perfil'),
+      h('button', { class: 'qbtn', type: 'button', onclick: go(() => startTour()) }, 'Ver tutorial'),
+      h('button', { class: 'qbtn danger', type: 'button', onclick: go(() => askLogout()) }, 'Cerrar sesión')));
+  const close = e => { if (!m.contains(e.target) && !(e.target.closest && e.target.closest('#me-chip'))) m._off(); };
+  const key = e => { if (e.key === 'Escape') { m._off(); const b = $('#me-chip'); if (b) b.focus(); } };
   m._off = () => { m.remove(); document.removeEventListener('pointerdown', close, true); document.removeEventListener('keydown', key); };
   document.body.append(m);
   const r = btn.getBoundingClientRect();
@@ -2380,6 +2387,7 @@ function renderProgress() {
   resetBox.append(resetBtn);
   root.append(resetBox);
   root.append(h('p', { class: 'credits' },
+    'Hecho por Jorge Luis Pizano Saucedo. Karen, la mascota, fue ilustrada por Karen. ',
     `Versión ${APP_VERSION}. `, cloud ? 'Tu progreso se guarda en tu cuenta. ' : 'Tu progreso se guarda en este navegador. ',
     'Puzzles generados con Stockfish a partir de partidas simuladas. Motor: ', h('a', { href: 'https://github.com/nmrugg/stockfish.js', target: '_blank', rel: 'noopener noreferrer' }, 'Stockfish.js'), ' (GPLv3). ',
     'Reglas: ', h('a', { href: 'https://github.com/jhlywa/chess.js', target: '_blank', rel: 'noopener noreferrer' }, 'chess.js'), ' (BSD). ',
@@ -2515,6 +2523,64 @@ async function resetPassword(email) {
   try { const fb = await Auth.load(); await fb.auth().sendPasswordResetEmail(email); gate('email', { email, info: `Si hay una cuenta con ${email}, te llegará un correo para cambiar tu contraseña.` }); }
   catch (e) { gate('email', { email, err: authMsg(e) }); }
 }
+// ---------- perfiles de este navegador: varias personas pueden usar la misma computadora.
+// Al cerrar sesión, el progreso se guarda aparte y el perfil aparece en la pantalla de inicio para volver a entrar.
+const PKEY = 'peonarey.profiles', pslot = id => 'peonarey.p.' + id;
+const Profiles = {
+  list() {
+    try { const l = safeParse(localStorage.getItem(PKEY) || '[]'); return Array.isArray(l) ? l.filter(p => p && typeof p.id === 'string' && typeof p.name === 'string') : []; }
+    catch (e) { return []; }
+  },
+  saveList(l) { try { localStorage.setItem(PKEY, JSON.stringify(l)); } catch (e) { /* sin almacenamiento */ } },
+  logout(wipe) {
+    if (S.profile) {
+      const id = S.profile.id || (S.profile.id = Math.random().toString(36).slice(2, 10));
+      const l = this.list().filter(p => p.id !== id);
+      try {
+        if (wipe) localStorage.removeItem(pslot(id));
+        else {
+          localStorage.setItem(pslot(id), JSON.stringify(S));
+          l.unshift({ id, name: S.profile.name || 'Jugador', photo: S.profile.photo || '', rating: Math.round(S.rating), rank: rankShown(), at: Date.now() });
+        }
+      } catch (e) { toast('No hay espacio en este navegador para guardar tu perfil. No se cerró la sesión.'); return; }
+      this.saveList(l.slice(0, 8));
+    }
+    if (session) { session = null; if (board) { board.setInteractive(false); board.setPick(null); } }
+    S = defaultState(); localSave(); mapScrolled = false; Mascot.hide(true); Music.update();
+    gate('welcome', { info: wipe ? 'Cerraste sesión y se borraron tus datos de este navegador.' : 'Cerraste sesión. Tu perfil quedó guardado en este navegador.' });
+  },
+  enter(id) {
+    let st = null;
+    try { const raw = localStorage.getItem(pslot(id)); if (raw) st = normalizeState(safeParse(raw)); } catch (e) { /* dañado */ }
+    if (!st || !st.profile) { this.remove(id); gate('welcome', { err: 'Ese perfil ya no está en este navegador.' }); return; }
+    S = st; S.profile.id = id; localSave(); mapScrolled = false;
+    closeGate(); setTab('map'); renderChips(); toast(`¡Hola de nuevo, ${S.profile.name}!`);
+  },
+  remove(id) { try { localStorage.removeItem(pslot(id)); } catch (e) { /* nada */ } this.saveList(this.list().filter(p => p.id !== id)); },
+};
+function askLogout() {
+  for (const old of $$('.modal')) old.remove();
+  const signed = S.account && S.account.provider === 'firebase' && !!Auth.user;
+  const close = () => { ov.remove(); document.removeEventListener('keydown', onKey); };
+  const onKey = e => { if (e.key === 'Escape') close(); };
+  let armed = false;
+  const wipeBtn = signed ? null : h('button', { class: 'btn danger-btn', onclick: () => {
+    if (!armed) { armed = true; wipeBtn.textContent = 'Sí, borrar mis datos de aquí'; return; }
+    close(); Profiles.logout(true);
+  } }, 'Salir y borrar mis datos');
+  const ov = h('div', { class: 'modal', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'lo-t', onclick: e => { if (e.target === ov) close(); } },
+    h('div', { class: 'modal-card' },
+      h('h2', { id: 'lo-t' }, '¿Cerrar sesión?'),
+      h('p', { class: 'muted' }, signed
+        ? 'Tu progreso está guardado en tu cuenta. Para volver, entra otra vez con Google o con tu correo.'
+        : 'Tu perfil y tu progreso se quedan guardados en este navegador; para volver, elígelo en la pantalla de inicio. Si esta computadora no es tuya, mejor borra tus datos.'),
+      h('div', { class: 'stack' },
+        h('button', { class: 'btn primary', onclick: () => { close(); if (signed) logout(); else Profiles.logout(false); } }, 'Cerrar sesión'),
+        wipeBtn,
+        h('button', { class: 'btn ghost', onclick: close }, 'Cancelar'))));
+  document.body.append(ov); document.addEventListener('keydown', onKey);
+  setTimeout(() => { const b = $('.modal .btn.primary'); if (b) b.focus(); }, 30);
+}
 async function logout() {
   try { if (Auth.fb) await Auth.fb.auth().signOut(); } catch (e) { /* sin conexión: se cierra igual en este navegador */ }
   cloud = null; Auth.user = null; S = defaultState(); localSave(); mapScrolled = false;
@@ -2547,6 +2613,28 @@ function renderGate() {
         h('h1', { class: 'gate-title' }, 'De Peón a Rey'),
         h('p', { class: 'gate-lead' }, 'Puzzles por niveles, un reto diario y la revisión de tus partidas con Stockfish. Tus errores se vuelven tus próximos ejercicios.')),
       ...gateNotices());
+    const saved = G.upgrade ? [] : Profiles.list();
+    if (saved.length) {
+      const list = h('div', { class: 'who-list' });
+      for (const p of saved) {
+        const R = RANKS[p.rank] || RANKS[0];
+        const row = h('div', { class: 'who-row' });
+        const fill = () => {
+          row.textContent = '';
+          row.append(
+            h('button', { class: 'who-btn', type: 'button', onclick: () => Profiles.enter(p.id) },
+              avatarEl('avatar', p.photo || '', p.name), h('span', { class: 'who-txt' }, h('strong', null, p.name), h('small', null, `${R.name}, ${p.rating} de rating`)), icon('i-back', 'who-go')),
+            h('button', { class: 'icon-btn who-del', type: 'button', 'aria-label': `Borrar el perfil de ${p.name}`, onclick: () => {
+              row.textContent = '';
+              row.append(h('div', { class: 'who-confirm' }, h('span', null, `¿Borrar a ${p.name} de este navegador?`),
+                h('button', { class: 'btn small danger-btn', onclick: () => { Profiles.remove(p.id); renderGate(); } }, 'Borrar'),
+                h('button', { class: 'btn small', onclick: fill }, 'Cancelar')));
+            } }, icon('i-close')));
+        };
+        fill(); list.append(row);
+      }
+      box.append(h('div', { class: 'stack' }, h('div', { class: 'gate-kicker' }, '¿Quién va a jugar?'), list));
+    }
     const acts = h('div', { class: 'stack' });
     if (Auth.available()) {
       acts.append(
@@ -2558,7 +2646,7 @@ function renderGate() {
         h('button', { class: 'btn ghost', onclick: () => gate('profile', { guest: true }) }, 'Probar sin cuenta'),
         h('p', { class: 'gate-note' }, 'Sin cuenta, tu progreso se guarda solo en este navegador. Puedes crear tu cuenta después.'));
     } else {
-      acts.append(h('button', { class: 'btn primary big', onclick: () => gate('profile') }, 'Empezar'),
+      acts.append(h('button', { class: saved.length ? 'btn big' : 'btn primary big', onclick: () => gate('profile') }, saved.length ? 'Crear perfil nuevo' : 'Empezar'),
         h('p', { class: 'gate-note' }, 'Tu progreso se guarda en este navegador.'));
     }
     box.append(acts);
@@ -2651,7 +2739,7 @@ function tourSteps() {
     { sel: '.node.current', title: 'Niveles', text: 'Cada intento son 5 puzzles. Pasas con 4 puntos y ganas 3 estrellas con 5 de 5 sin pistas. Si repites, te tocan puzzles nuevos. Si no pasas pierdes una vida; se recuperan cada 20 minutos.', mood: 'point', emote: 'exclaim' },
     { sel: '.rank-chip', fixed: true, title: 'Tu rango', text: 'Tu pieza asciende de Peón a Rey juntando rating táctico y mundos completados. Para Rey necesitas 1500 y todos los niveles con 3 estrellas. El rango nunca baja.', mood: 'cheer', prop: 'crown', emote: 'sparkle' },
     { sel: '.tab[data-tab="analyze"]', fixed: true, title: 'Analiza tus partidas', text: 'Trae tus partidas de Chess.com o Lichess. Stockfish revisa cada jugada y tus errores se vuelven puzzles en "Tu entrenamiento".', mood: 'think', prop: ['glasses', 'magnifier'] },
-    { sel: '.tab[data-tab="progress"]', fixed: true, title: 'Tu progreso', text: `Aquí ves tu rango, tus temas débiles y tu cuenta. También puedes repetir este tutorial. En el botón de sonido apagas la música o mis consejos.`, mood: 'happy', emote: 'heart' },
+    { sel: '.tab[data-tab="progress"]', fixed: true, title: 'Tu progreso', text: `Aquí ves tu rango, tus temas débiles y tu cuenta. También puedes repetir este tutorial. Tocando tu foto, arriba a la derecha, apagas la música o mis consejos y cierras sesión.`, mood: 'happy', emote: 'heart' },
     { sel: '.node.current', title: '¡Listo!', text: 'Empieza por el primer nivel. Cada puzzle que resuelves te acerca al siguiente rango. ¡Yo te echo porras!', mood: 'cheer', prop: 'partyhat', emote: 'sparkle' },
   ];
 }
@@ -2787,10 +2875,10 @@ async function shrinkPhoto(file, size = 192) {
   } finally { URL.revokeObjectURL(url); }
 }
 // photo: undefined = la del perfil (o la de Google), '' = sin foto
-function avatarEl(cls = 'avatar', photo) {
+function avatarEl(cls = 'avatar', photo, name) {
   const P = S.profile || {}, A = S.account || {};
   const src = photo !== undefined ? photo : P.photo !== undefined ? P.photo : (A.photo || '');
-  const initial = ((P.name || A.name || '?').trim().charAt(0) || '?').toUpperCase();
+  const initial = ((name || P.name || A.name || '?').trim().charAt(0) || '?').toUpperCase();
   const el = h('span', { class: cls, 'aria-hidden': 'true' });
   if (src) {
     const im = h('img', { src, alt: '', referrerpolicy: 'no-referrer', decoding: 'async' });
@@ -2822,7 +2910,10 @@ function accountCard() {
         h('button', { class: 'btn small', onclick: () => renderProgress() }, 'Cancelar')));
     } }, 'Cerrar sesión');
     acts.append(out);
-  } else if (Auth.available()) acts.append(h('button', { class: 'btn small primary', onclick: () => gate('welcome', { upgrade: true }) }, 'Crear cuenta'));
+  } else {
+    if (Auth.available()) acts.append(h('button', { class: 'btn small primary', onclick: () => gate('welcome', { upgrade: true }) }, 'Crear cuenta'));
+    acts.append(h('button', { class: 'btn small', onclick: askLogout }, 'Cerrar sesión'));
+  }
   return h('div', { class: 'card account' },
     h('button', { class: 'avatar-btn', type: 'button', 'aria-label': 'Cambiar foto de perfil', title: 'Cambiar foto', onclick: changePhoto }, avatarEl(), h('span', { class: 'cam' }, icon('i-camera'))),
     h('div', { class: 'acc-info' }, h('strong', null, P.name || 'Jugador'), h('span', { class: 'muted' }, sub)),

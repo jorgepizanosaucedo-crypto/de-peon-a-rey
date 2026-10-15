@@ -272,6 +272,8 @@ def main(argv):
         shutil.copy(os.path.join(ROOT, "config", "firebase-config.js"), cfg)
     os.makedirs(os.path.join(DIST, "site", "data"), exist_ok=True)
     shutil.copy(os.path.join(ROOT, "data", "openings.json"), os.path.join(DIST, "site", "data", "openings.json"))
+    # sitio estático puro: GitHub Pages no necesita procesarlo con Jekyll (publica más rápido)
+    open(os.path.join(DIST, "site", ".nojekyll"), "w").close()
     # copia para GitHub Pages (rama main, carpeta /docs); firebase-config.js de docs nunca se sobrescribe
     docs = os.path.join(ROOT, "docs")
     for base, _, files in os.walk(os.path.join(DIST, "site")):

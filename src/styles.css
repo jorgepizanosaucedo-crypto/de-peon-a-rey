@@ -592,3 +592,40 @@ body.gated #app, body.gated #tabbar { display: none !important; }
 /* la app no se muestra dentro de páginas ajenas (protección contra clickjacking) */
 .framed body > :not(.framed-msg) { display: none !important; }
 .framed-msg { max-width: 420px; margin: 20vh auto 0; padding: 24px; text-align: center; font-family: var(--f-body); }
+
+/* ---------- tu foto en la barra y su menú ---------- */
+.me-chip { position: relative; width: 38px; padding: 0; justify-content: center; }
+.me-av { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; overflow: hidden; flex: none; background: var(--violet); color: #fff; font-family: var(--f-display); font-weight: 800; font-size: 13px; }
+.me-av img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.me-chip .me-mute { position: absolute; right: -5px; bottom: -5px; width: 17px; height: 17px; padding: 2px; border-radius: 50%; background: var(--surface); border: 1px solid var(--line); color: var(--muted); }
+.qhead { display: flex; align-items: center; gap: 12px; padding: 10px 12px 12px; margin-bottom: 4px; border-bottom: 1px solid var(--line); }
+.qhead .avatar { width: 44px; height: 44px; border-radius: 14px; font-size: 19px; box-shadow: none; }
+.qwho { min-width: 0; }
+.qwho strong { display: block; font-family: var(--f-display); font-size: 17px; line-height: 1.2; }
+.qwho small { display: block; font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
+.qacts { display: flex; flex-direction: column; margin-top: 4px; padding-top: 4px; border-top: 1px solid var(--line); }
+.qbtn { padding: 11px 12px; border: 0; border-radius: 12px; background: none; text-align: left; font-weight: 700; font-size: 15px; color: var(--ink); cursor: pointer; }
+.qbtn:hover { background: var(--surface-2); }
+.qbtn.danger { color: var(--bad); }
+
+/* ---------- ventana de confirmación ---------- */
+.modal { position: fixed; inset: 0; z-index: 88; display: grid; place-items: center; padding: 16px; background: rgba(20, 16, 32, .62); animation: viewin .15s ease-out; }
+.modal-card { width: min(400px, 100%); padding: 22px; border-radius: 22px; background: var(--surface); border: 1px solid var(--line); box-shadow: var(--shadow-lift); animation: rise .4s var(--ease-spring) both; }
+.modal-card h2 { font-size: 24px; font-weight: 800; margin-bottom: 6px; }
+.modal-card p { margin: 0 0 16px; }
+.btn.danger-btn { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 45%, var(--line)); }
+
+/* ---------- perfiles guardados en la pantalla de inicio ---------- */
+.who-list { display: flex; flex-direction: column; gap: 8px; }
+.who-row { display: flex; align-items: center; gap: 8px; min-height: 66px; }
+.who-btn { flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); color: var(--ink); text-align: left; cursor: pointer; box-shadow: 0 2px 0 var(--line); transition: transform .1s, border-color .15s, box-shadow .1s; }
+.who-btn:hover { border-color: color-mix(in srgb, var(--violet) 50%, var(--line)); }
+.who-btn:active { transform: translateY(2px); box-shadow: none; }
+.who-btn .avatar { width: 44px; height: 44px; border-radius: 14px; font-size: 19px; }
+.who-txt { flex: 1; min-width: 0; }
+.who-txt strong { display: block; font-family: var(--f-display); font-size: 18px; line-height: 1.2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.who-txt small { display: block; font-size: 13px; color: var(--muted); }
+.who-go { width: 20px; height: 20px; transform: rotate(180deg); color: var(--muted); flex: none; }
+.who-del { width: 42px; height: 42px; }
+.who-del svg { width: 18px; height: 18px; }
+.who-confirm { flex: 1; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 6px 2px; font-weight: 700; font-size: 15px; }

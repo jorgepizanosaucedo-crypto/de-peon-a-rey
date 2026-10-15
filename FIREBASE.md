@@ -18,7 +18,7 @@ Tiempo: unos 10 minutos.
    - **Google** → Habilitar → elige tu correo de soporte → Guardar.
    - **Correo electrónico/contraseña** → Habilitar (solo el primer interruptor) → Guardar.
 3. Pestaña **Configuración → Dominios autorizados**: `localhost` ya viene. Cuando publiques en
-   GitHub Pages, agrega `TU-USUARIO.github.io`.
+   GitHub Pages, agrega `jorgepizanosaucedo-crypto.github.io`.
 
 ## 3. Crear la base de datos
 
@@ -87,12 +87,12 @@ Firebase" si falta el dominio del paso 2).
 1. **Limita tu clave a tu sitio.** En https://console.cloud.google.com, con tu proyecto elegido:
    **APIs y servicios → Credenciales** → abre la clave "Browser key (auto created by Firebase)".
    - **Restricciones de aplicaciones → Sitios web**, agrega:
-     `https://TU-USUARIO.github.io/*`, `https://de-peon-a-rey.firebaseapp.com/*` y `http://localhost:8000/*`.
+     `https://jorgepizanosaucedo-crypto.github.io/*`, `https://de-peon-a-rey.firebaseapp.com/*` y `http://localhost:8000/*`.
    - **Restricciones de API → Restringir clave**, marca solo: *Identity Toolkit API*, *Token Service API*
      y *Cloud Firestore API*.
    Así, aunque alguien copie tu configuración, no puede usarla desde otro sitio.
 2. **Dominios autorizados** (Authentication → Configuración): deja solo `localhost`, el de
-   `firebaseapp.com` y `TU-USUARIO.github.io`.
+   `firebaseapp.com` y `jorgepizanosaucedo-crypto.github.io`.
 3. **Contraseñas más fuertes** (Authentication → Configuración → Política de contraseñas): pide al menos
    8 caracteres. La app ya lo pide al crear cuenta.
 4. **Protección contra enumeración de correos** (Authentication → Configuración → Acciones del usuario):
