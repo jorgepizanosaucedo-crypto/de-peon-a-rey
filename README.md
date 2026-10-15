@@ -54,8 +54,6 @@ Sin anuncios, analíticas ni cookies. Sin cuenta, tu progreso nunca sale de tu n
 
 Hecho por **Jorge Luis Pizano Saucedo** ([@jorgepizanosaucedo-crypto](https://github.com/jorgepizanosaucedo-crypto)).
 
-Karen, la mascota, fue ilustrada por **Karen**.
-
 ## Créditos y licencias
 
 - Código de De Peón a Rey © 2026 Jorge Luis Pizano Saucedo, bajo GPLv3 ([`LICENSE`](LICENSE)), la misma licencia de Stockfish.
