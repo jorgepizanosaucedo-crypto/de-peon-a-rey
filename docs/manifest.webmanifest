@@ -1,7 +1,7 @@
 {
   "name": "De Peón a Rey",
   "short_name": "Peón a Rey",
-  "description": "Entrenador de táctica de ajedrez gratuito.",
+  "description": "Entrenador de ajedrez gratuito: aprende desde cero, táctica y revisión de partidas.",
   "lang": "es",
   "start_url": "./",
   "scope": "./",

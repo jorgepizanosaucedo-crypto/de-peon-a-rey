@@ -250,7 +250,9 @@ def main(argv):
     counts = {k: len(v) for k, v in data["worlds"].items()}
     print("puzzles por mundo:", counts, "total", sum(counts.values()))
     rd = lambda name: open(os.path.join(SRC, name), encoding="utf-8").read()
-    tpl, app_js, sample, css = rd("app.template.html"), rd("app.js"), rd("sample.json"), rd("styles.css")
+    # un solo script: contenido de la Escuela, funciones de la Escuela y la app (en ese orden)
+    app_js = rd("lessons.js") + "\n" + rd("school.js") + "\n" + rd("app.js")
+    tpl, sample, css = rd("app.template.html"), rd("sample.json"), rd("styles.css")
     page = (tpl.replace("{{STYLES}}", css.strip())
                .replace("{{PIECES}}", pieces_defs())
                .replace("{{PUZZLES}}", json.dumps(data, separators=(",", ":")))

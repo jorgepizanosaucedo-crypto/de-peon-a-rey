@@ -104,7 +104,8 @@ function rankIndex(r) { let k = 0; RANKS.forEach((x, i) => { if (r >= x.min) k =
 function defaultState() {
   return { v: 1, lives: MAX_LIVES, livesTs: Date.now(), levels: {}, rating: 800, ratingN: 0, ratingHist: [],
     themeStats: {}, review: [], mine: [], games: [], streak: { last: null, days: 0 }, solved: 0,
-    settings: { platform: 'chesscom', user: '', depth: 16 }, lessonsOpen: {}, savedAt: 0, rankMax: 0, daily: {} };
+    settings: { platform: 'chesscom', user: '', depth: 16 }, lessonsOpen: {}, savedAt: 0, rankMax: 0, daily: {},
+    school: { done: {}, needBasics: false, skip: false, titles: [] } };
 }
 function normalizeState(d) {
   const base = defaultState();
@@ -112,6 +113,11 @@ function normalizeState(d) {
   if (![12, 16, 18].includes(st.settings.depth)) st.settings.depth = 16;
   st.games = (st.games || []).filter(g => g.v === 2);
   st.daily = st.daily || {};
+  // Escuela: lecciones terminadas (con sus estrellas), si empezó desde cero y los títulos ya celebrados
+  const sc = st.school && typeof st.school === 'object' ? st.school : {};
+  const done = {};
+  if (sc.done && typeof sc.done === 'object') for (const [k, v] of Object.entries(sc.done)) if (/^[a-z0-9-]{1,40}$/.test(k) && v >= 1) done[k] = Math.min(3, Math.round(v));
+  st.school = { done, needBasics: !!sc.needBasics, skip: !!sc.skip, titles: Array.isArray(sc.titles) ? sc.titles.filter(t => typeof t === 'string').slice(0, 40) : [], last: typeof sc.last === 'string' ? sc.last : null };
   return st;
 }
 // JSON.parse que descarta claves peligrosas (__proto__, constructor, prototype) de datos guardados
@@ -247,8 +253,8 @@ function markSeen(p) {
 const WORLDS = DATA.order.filter(k => levelsOf(k).length > 0);
 function worldState() {
   // devuelve estado de cada mundo y el nivel actual
-  let prevDone = true; const res = [];
-  const hasProgress = k => levelsOf(k).some((_, i) => S.levels[k + '-' + i]);
+  let prevDone = !schoolGated(); const res = [];
+  const hasProgress = k => !schoolGated() && levelsOf(k).some((_, i) => S.levels[k + '-' + i]);
   WORLDS.forEach((key, wi) => {
     const lv = levelsOf(key);
     const stars = lv.map((_, i) => S.levels[key + '-' + i] || 0);
@@ -442,7 +448,7 @@ class Engine {
     if (g.game_over()) {
       const white = g.turn() === 'w';
       const cp = g.in_checkmate() ? (white ? -10000 : 10000) : 0;
-      return Promise.resolve({ cp, mate: g.in_checkmate() ? 0 : null, best: null, pv: [], cp2: null });
+      return Promise.resolve({ cp, mate: g.in_checkmate() ? 0 : null, best: null, pv: [], cp2: null, lines: [] });
     }
     return new Promise(res => {
       const turnW = fen.split(' ')[1] === 'w'; const lines = {};
@@ -458,7 +464,9 @@ class Engine {
         } else if (line.startsWith('bestmove')) {
           this.listeners = this.listeners.filter(x => x !== fn);
           const best = line.split(/\s+/)[1]; const l1 = lines[1] || { cp: 0, mate: null, pv: [] };
-          res({ cp: l1.cp, mate: l1.mate, best: best && best !== '(none)' ? best : (l1.pv[0] || null), pv: l1.pv, cp2: lines[2] ? lines[2].cp : null });
+          // lines: todas las variantes pedidas (MultiPV), en orden y con el puntaje desde las blancas
+          res({ cp: l1.cp, mate: l1.mate, best: best && best !== '(none)' ? best : (l1.pv[0] || null), pv: l1.pv, cp2: lines[2] ? lines[2].cp : null,
+            lines: Object.keys(lines).map(Number).sort((a, b) => a - b).map(k => lines[k]) });
         }
       };
       this.listeners.push(fn);
@@ -469,7 +477,7 @@ class Engine {
   }
 }
 const engine = new Engine();
-const APP_VERSION = '1.4';
+const APP_VERSION = '2.0';
 
 // ---------------------------------------------------------------- sonido y celebraciones
 // Sonidos sintetizados con Web Audio: no hay archivos que descargar y funcionan sin conexión.
@@ -584,11 +592,54 @@ const SONG = (() => {
   // forma: intro sin melodía, A, B, A (32 compases, ~1.5 min)
   return { form: [[A, null], [A, mA], [B, mB], [A, mA]], bars: 32 };
 })();
+// Lo-fi para estudiar en la Escuela: Rhodes, bajo redondo, batería suave con swing, kalimba y crujido de vinilo.
+// Progresión en Do: Fmaj9, Em9, Dm9, Cmaj9 / Sibmaj9, Am9, Gm9, C9sus.
+const LOFI = (() => {
+  const C = [
+    { v: [57, 60, 64, 67], b: 41 }, // Fmaj9
+    { v: [55, 59, 62, 66], b: 40 }, // Em9
+    { v: [53, 57, 60, 64], b: 38 }, // Dm9
+    { v: [52, 55, 59, 62], b: 36 }, // Cmaj9
+    { v: [57, 60, 62, 65], b: 46 }, // Sibmaj9
+    { v: [55, 59, 60, 64], b: 45 }, // Am9
+    { v: [53, 57, 58, 62], b: 43 }, // Gm9
+    { v: [53, 58, 62, 67], b: 36 }, // C9sus
+  ];
+  const m1 = [
+    [[0, 76, 4], [4, 79, 2], [6, 81, 4], [12, 79, 4]],
+    [[2, 76, 2], [4, 74, 4], [10, 72, 6]],
+    [[0, 74, 4], [6, 76, 2], [8, 81, 4], [14, 79, 2]],
+    [[0, 76, 8], [12, 72, 4]],
+    [[0, 74, 2], [2, 77, 2], [4, 81, 4], [10, 79, 2], [12, 77, 4]],
+    [[0, 76, 4], [6, 72, 2], [8, 74, 6]],
+    [[2, 74, 2], [4, 77, 2], [6, 74, 2], [8, 70, 6]],
+    [[0, 72, 4], [8, 74, 2], [10, 77, 2], [12, 79, 4]],
+  ];
+  const m2 = [
+    [[0, 84, 4], [6, 81, 2], [8, 79, 4], [12, 76, 4]],
+    [[0, 79, 6], [8, 76, 4], [12, 74, 4]],
+    [[0, 77, 2], [2, 76, 2], [4, 74, 4], [8, 72, 8]],
+    [[4, 79, 2], [6, 81, 2], [8, 84, 8]],
+    [[0, 86, 4], [6, 84, 2], [8, 81, 4], [12, 77, 4]],
+    [[0, 79, 8], [10, 76, 6]],
+    [[0, 77, 4], [4, 74, 4], [8, 70, 4], [12, 74, 4]],
+    [[0, 72, 12]],
+  ];
+  return { form: [[C, null], [C, m1], [C, m2], [C, m1]], bars: 32 };
+})();
 const Music = {
-  bpm: 84, vol: 0.4, playing: false, gesture: false, view: 'map', timer: null, stopT: null, step: 0, nextT: 0, bus: null,
+  vol: 0.4, playing: false, gesture: false, view: 'map', timer: null, stopT: null, swapT: null, step: 0, nextT: 0, bus: null, song: 'bossa', vinyl: null,
+  get bpm() { return this.song === 'lofi' ? 72 : 84; },
+  level() { return this.vol * (this.song === 'lofi' ? 1.2 : 1); }, // las dos canciones suenan igual de fuerte
   enabled() { return S.settings.music !== false; },
+  songFor(view) { return view === 'school' || view === 'lesson' ? 'lofi' : 'bossa'; },
   wanted() { return this.enabled() && this.gesture && !document.hidden && this.view !== 'play'; },
-  update() { const w = this.wanted(); if (w && !this.playing) this.start(); else if (!w && this.playing) this.stop(); },
+  update() {
+    const w = this.wanted();
+    if (w && !this.playing) this.start();
+    else if (!w && this.playing) this.stop();
+    else if (w && this.playing && this.songFor(this.view) !== (this.swapTo || this.song)) this.swap();
+  },
   midi: n => 440 * Math.pow(2, (n - 69) / 12),
   build(c) {
     const master = c.createGain(); master.gain.value = 0;
@@ -603,15 +654,16 @@ const Music = {
       const l = c.createOscillator(); l.frequency.value = rate; const lg = c.createGain(); lg.gain.value = depth;
       l.connect(lg); lg.connect(g.gain); l.start(); return g;
     };
-    const ep = trem(4.2, 0.16), vib = trem(5.4, 0.28), pad = c.createGain(), bass = c.createGain(), perc = c.createGain();
-    for (const g of [ep, vib, pad]) { g.connect(master); g.connect(rev); }
-    bass.connect(master); perc.connect(master);
+    const ep = trem(4.2, 0.16), vib = trem(5.4, 0.28), pad = c.createGain(), bass = c.createGain(), perc = c.createGain(), kal = c.createGain(), vin = c.createGain();
+    for (const g of [ep, vib, pad, kal]) { g.connect(master); g.connect(rev); }
+    bass.connect(master); perc.connect(master); vin.connect(master); vin.gain.value = 0;
     const pr = c.createGain(); pr.gain.value = 0.25; perc.connect(pr); pr.connect(rev);
-    this.bus = { master, ep, vib, pad, bass, perc };
+    this.bus = { master, tone, ep, vib, pad, bass, perc, kal, vin };
   },
   ep(c, t, n, dur, vel) { // piano eléctrico (FM)
     const f = this.midi(n), car = c.createOscillator(), mod = c.createOscillator(), mg = c.createGain(), a = c.createGain();
     car.frequency.value = f; mod.frequency.value = f;
+    if (this.song === 'lofi') car.detune.value = (Math.random() - 0.5) * 14; // cinta un poco desafinada
     mg.gain.setValueAtTime(f * 1.3, t); mg.gain.exponentialRampToValueAtTime(f * 0.1, t + 0.8);
     mod.connect(mg); mg.connect(car.frequency);
     a.gain.setValueAtTime(0.0001, t); a.gain.exponentialRampToValueAtTime(vel, t + 0.008);
@@ -627,6 +679,14 @@ const Music = {
     a2.gain.setValueAtTime(0.0001, t); a2.gain.exponentialRampToValueAtTime(vel * 0.18, t + 0.004); a2.gain.exponentialRampToValueAtTime(0.0001, t + 0.25);
     o.connect(a); o2.connect(a2); a.connect(this.bus.vib); a2.connect(this.bus.vib);
     o.start(t); o2.start(t); o.stop(t + rel + 0.05); o2.stop(t + 0.3);
+  },
+  kalimba(c, t, n, vel) { // púa metálica: fundamental redonda y un parcial agudo que se apaga rápido
+    const f = this.midi(n), o = c.createOscillator(), o2 = c.createOscillator(), a = c.createGain(), a2 = c.createGain();
+    o.frequency.setValueAtTime(f * 1.012, t); o.frequency.exponentialRampToValueAtTime(f, t + 0.03); o2.frequency.value = f * 5.95;
+    a.gain.setValueAtTime(0.0001, t); a.gain.exponentialRampToValueAtTime(vel, t + 0.004); a.gain.exponentialRampToValueAtTime(0.0001, t + 1.1);
+    a2.gain.setValueAtTime(0.0001, t); a2.gain.exponentialRampToValueAtTime(vel * 0.22, t + 0.002); a2.gain.exponentialRampToValueAtTime(0.0001, t + 0.09);
+    o.connect(a); o2.connect(a2); a.connect(this.bus.kal); a2.connect(this.bus.kal);
+    o.start(t); o2.start(t); o.stop(t + 1.15); o2.stop(t + 0.12);
   },
   bass(c, t, n, dur, vel) {
     const f = this.midi(n), o = c.createOscillator(), o2 = c.createOscillator(), lp = c.createBiquadFilter(), a = c.createGain();
@@ -648,13 +708,14 @@ const Music = {
     const a = c.createGain(); a.gain.setValueAtTime(vel, t); a.gain.exponentialRampToValueAtTime(0.0001, t + dur);
     src.connect(f); f.connect(a); a.connect(this.bus.perc); src.start(t); src.stop(t + dur + 0.02);
   },
-  kick(c, t, vel) {
+  kick(c, t, vel, lo = 48, hi = 95, dur = 0.25) {
     const o = c.createOscillator(), a = c.createGain();
-    o.frequency.setValueAtTime(95, t); o.frequency.exponentialRampToValueAtTime(48, t + 0.12);
-    a.gain.setValueAtTime(vel, t); a.gain.exponentialRampToValueAtTime(0.0001, t + 0.25);
-    o.connect(a); a.connect(this.bus.perc); o.start(t); o.stop(t + 0.27);
+    o.frequency.setValueAtTime(hi, t); o.frequency.exponentialRampToValueAtTime(lo, t + 0.12);
+    a.gain.setValueAtTime(vel, t); a.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(a); a.connect(this.bus.perc); o.start(t); o.stop(t + dur + 0.02);
   },
-  playStep(c, k, t) {
+  playStep(c, k, t) { if (this.song === 'lofi') this.playLofi(c, k, t); else this.playBossa(c, k, t); },
+  playBossa(c, k, t) {
     const sp = 60 / this.bpm / 4, bar = Math.floor(k / 16), s = k % 16;
     const [chords, mel] = SONG.form[Math.floor(bar / 8) % SONG.form.length], bi = bar % 8, ch = chords[bi];
     const r = () => 0.85 + Math.random() * 0.3, hum = () => Math.random() * 0.008;
@@ -674,32 +735,90 @@ const Music = {
     // melodía
     if (mel) for (const [ms, n, len] of mel[bi]) if (ms === s) this.vib(c, t + hum(), n, len * sp, 0.095 * r());
   },
+  playLofi(c, k, t) {
+    const sp = 60 / this.bpm / 4, bar = Math.floor(k / 16), s = k % 16;
+    const [chords, mel] = LOFI.form[Math.floor(bar / 8) % LOFI.form.length], bi = bar % 8, ch = chords[bi];
+    const r = () => 0.85 + Math.random() * 0.3, hum = () => Math.random() * 0.012;
+    const tt = t + (s % 2 ? sp * 0.3 : 0); // swing: las semicorcheas de contratiempo llegan tarde
+    // Rhodes: acorde largo, rasgueado, y un toque suave en el "y" del tres
+    if (s === 0) ch.v.forEach((n, i) => this.ep(c, tt + i * 0.018 + hum(), n, sp * 13, 0.062 * r()));
+    if (s === 10 && bar % 2) ch.v.slice(1).forEach((n, i) => this.ep(c, tt + i * 0.014, n, sp * 4, 0.038 * r()));
+    if (s === 0 && bar % 4 === 0) this.pad(c, t, ch.v.slice(1), sp * 16);
+    // bajo redondo
+    if (s === 0) this.bass(c, tt, ch.b, sp * 6, 0.08 * r());
+    if (s === 7) this.bass(c, tt, ch.b + 12 > 52 ? ch.b + 7 : ch.b + 12, sp * 2, 0.06 * r());
+    if (s === 10) this.bass(c, tt, ch.b, sp * 4, 0.065 * r());
+    // batería: bombo, tarola apagada y hi-hats con swing
+    if (s === 0 || s === 10 || (s === 7 && bar % 4 === 3)) this.kick(c, tt, 0.05, 60, 125, 0.24);
+    if (s === 4 || s === 12) { this.noiseHit(c, tt + hum(), 'bandpass', 1700, 0.8, 0.16, 0.12 * r()); this.kick(c, tt, 0.035, 160, 210, 0.08); }
+    if (s % 2 === 0) this.noiseHit(c, tt + hum(), 'highpass', 6800, 0.8, 0.028, (s % 4 === 2 ? 0.05 : 0.028) * r());
+    if (s === 14 && bar % 2) this.noiseHit(c, tt, 'highpass', 6000, 0.7, 0.14, 0.03);
+    // kalimba
+    if (mel) for (const [ms, n] of mel[bi]) if (ms === s) this.kalimba(c, tt + hum(), n, 0.1 * r());
+  },
+  // crujido de disco: siseo muy bajito con chasquidos sueltos, en bucle
+  startVinyl(c) {
+    if (this.vinyl || !this.bus) return;
+    const len = Math.floor(c.sampleRate * 3), buf = c.createBuffer(1, len, c.sampleRate), d = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * 0.05;
+    for (let k = 0; k < 26; k++) { const at = Math.floor(Math.random() * (len - 200)), amp = 0.3 + Math.random() * 0.7; for (let j = 0; j < 60; j++) d[at + j] += (Math.random() * 2 - 1) * amp * Math.pow(1 - j / 60, 2); }
+    const src = c.createBufferSource(); src.buffer = buf; src.loop = true;
+    const hp = c.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 1400;
+    src.connect(hp); hp.connect(this.bus.vin); src.start();
+    this.vinyl = src;
+  },
+  stopVinyl() { if (this.vinyl) { try { this.vinyl.stop(); } catch (e) { /* ya parado */ } this.vinyl = null; } },
+  setSong(c, song) {
+    this.song = song; this.step = 0; this.nextT = c.currentTime + 0.08;
+    const lofi = song === 'lofi', now = c.currentTime;
+    this.bus.tone.frequency.setTargetAtTime(lofi ? 2400 : 5200, now, 0.05);
+    this.bus.vin.gain.setTargetAtTime(lofi ? 0.09 : 0, now, 0.1);
+    if (lofi) this.startVinyl(c); else this.stopVinyl();
+  },
   tick() {
     const c = Sound.ctx; if (!c) return;
-    const sp = 60 / this.bpm / 4;
     if (this.nextT < c.currentTime) this.nextT = c.currentTime + 0.05;
     while (this.nextT < c.currentTime + 0.35) {
       try { this.playStep(c, this.step, this.nextT); } catch (e) { /* nada */ }
-      this.nextT += sp; this.step = (this.step + 1) % (SONG.bars * 16);
+      const form = this.song === 'lofi' ? LOFI : SONG;
+      this.nextT += 60 / this.bpm / 4; this.step = (this.step + 1) % (form.bars * 16);
     }
   },
   start() {
     const c = Sound.ensure(); if (!c) return;
     if (!this.bus) this.build(c);
-    clearTimeout(this.stopT);
-    if (!this.timer) { this.step = Math.floor(this.step / 128) * 128; this.nextT = c.currentTime + 0.1; this.timer = setInterval(() => this.tick(), 60); }
+    clearTimeout(this.stopT); clearTimeout(this.swapT); this.swapTo = null;
+    const want = this.songFor(this.view);
+    if (want !== this.song) this.setSong(c, want);
+    else if (!this.timer) { this.step = Math.floor(this.step / 128) * 128; this.nextT = c.currentTime + 0.1; if (want === 'lofi') this.startVinyl(c); }
+    if (!this.timer) this.timer = setInterval(() => this.tick(), 60);
     this.playing = true;
     const g = this.bus.master.gain, now = c.currentTime;
-    g.cancelScheduledValues(now); g.setValueAtTime(g.value, now); g.linearRampToValueAtTime(this.vol, now + 2.5);
+    g.cancelScheduledValues(now); g.setValueAtTime(g.value, now); g.linearRampToValueAtTime(this.level(), now + 2.5);
     this.tick();
+  },
+  // cambio de canción: baja la que suena y sube la otra
+  swap() {
+    const c = Sound.ctx; if (!c || !this.bus) return;
+    const to = this.songFor(this.view); this.swapTo = to;
+    const g = this.bus.master.gain, now = c.currentTime;
+    g.cancelScheduledValues(now); g.setValueAtTime(g.value, now); g.linearRampToValueAtTime(0, now + 0.7);
+    clearTimeout(this.swapT);
+    this.swapT = setTimeout(() => {
+      this.swapTo = null;
+      if (!this.playing) return;
+      this.setSong(c, this.songFor(this.view));
+      const t = c.currentTime; g.cancelScheduledValues(t); g.setValueAtTime(0, t); g.linearRampToValueAtTime(this.level(), t + 1.6);
+    }, 720);
   },
   stop(fast) {
     this.playing = false;
+    clearTimeout(this.swapT); this.swapTo = null;
     const c = Sound.ctx; if (!c || !this.bus) return;
     const g = this.bus.master.gain, now = c.currentTime, T = fast ? 0.3 : 1.2;
     g.cancelScheduledValues(now); g.setValueAtTime(g.value, now); g.linearRampToValueAtTime(0, now + T);
     clearTimeout(this.stopT);
-    this.stopT = setTimeout(() => { if (!this.playing) { clearInterval(this.timer); this.timer = null; } }, T * 1000 + 400);
+    this.stopT = setTimeout(() => { if (!this.playing) { clearInterval(this.timer); this.timer = null; this.stopVinyl(); } }, T * 1000 + 400);
   },
 };
 {
@@ -747,34 +866,120 @@ const PROPS = {
   partyhat: `<g class="prop-drop"><g transform="translate(196 14) rotate(16)"><path d="M-50 0L0 -128 50 0z" fill="#fff" stroke="${INK}" stroke-width="8" stroke-linejoin="round"/><path d="M-30 -52L18 -36M-16 -88L10 -80M-42 -20L36 -2" stroke="${RED}" stroke-width="12" stroke-linecap="round"/><path d="M-52 0q52 18 104 0" fill="none" stroke="${INK}" stroke-width="8" stroke-linecap="round"/><circle cx="0" cy="-132" r="15" fill="${RED}" stroke="${INK}" stroke-width="6"/></g></g>`,
   nightcap: `<g class="prop-drop"><path d="M92 50C96 -30 210 -64 268 -6c30 30 50 74 74 120l-34 6c-16-40-30-62-46-74l-6 30C200 34 140 38 92 50z" fill="${RED}" stroke="${INK}" stroke-width="8" stroke-linejoin="round"/><path d="M90 46q90-34 176-10l2 26q-90-22-176 10z" fill="#fff" stroke="${INK}" stroke-width="7" stroke-linejoin="round"/><circle cx="330" cy="126" r="22" fill="#fff" stroke="${INK}" stroke-width="7"/></g>`,
 };
-const TIP_POOL = [
-  { mood: 'think', emote: 'idea', text: 'Antes de mover, revisa en orden: jaques, capturas y amenazas. Así se encuentran casi todas las tácticas.' },
-  { mood: 'point', emote: 'exclaim', text: 'Después de cada jugada de tu rival pregúntate qué quiere hacer. Muchos errores se evitan solo con eso.' },
-  { mood: 'happy', emote: 'heart', text: 'Repasar tus puzzles fallados no gasta vidas. Es la forma más barata de mejorar.' },
-  { mood: 'think', emote: 'question', text: '¿Ya leíste la lección del mundo? Toca "Ver lección" antes de jugar un tema nuevo.' },
-  { mood: 'point', emote: 'sparkle', text: 'El reto diario es el mismo para todos. Compártelo y compárate con tus amigos.' },
-  { mood: 'think', prop: ['glasses', 'magnifier'], text: 'Analiza tus partidas: cada error grave se vuelve un puzzle hecho para ti.' },
-  { mood: 'happy', emote: 'notes', text: 'Si la música te distrae, toca tu foto arriba a la derecha y apágala.' },
-  { mood: 'think', prop: 'glasses', emote: 'idea', text: 'Las piezas sin defensa son las primeras que hay que mirar: las tuyas y las del rival.' },
-  { mood: 'point', emote: 'idea', text: 'Un jaque obliga al rival a responder. Por eso las mejores tácticas casi siempre empiezan con uno.' },
-];
 const THEME_WORLD = t => t.includes('defense') ? 'defense' : t.includes('mateIn1') ? 'mate1' : t.includes('mateIn2') ? 'mate2' : t.includes('fork') ? 'fork'
   : t.some(x => x === 'pin' || x === 'skewer') ? 'pin' : t.includes('discoveredAttack') ? 'discovered' : t.includes('hangingPiece') ? 'hanging' : 'mix';
+// Elige una frase de Karen sin repetir hasta agotar la lista, y nunca la misma dos veces seguidas.
+// {name}, {n}, {rank}, {rating}, {lesson}, {move} y {streak} se cambian por sus valores.
+const LINE_BAG = {};
+function karenLine(pool, vars = {}) {
+  const list = KAREN_LINES[pool]; if (!list || !list.length) return '';
+  let bag = LINE_BAG[pool];
+  if (!bag || !bag.left.length) {
+    const last = bag ? bag.last : -1, idx = shuffle(list.map((_, i) => i));
+    if (idx.length > 1 && idx[0] === last) idx.push(idx.shift());
+    bag = LINE_BAG[pool] = { left: idx, last };
+  }
+  const i = bag.left.shift(); bag.last = i;
+  const fill = t => t.replace(/\{(\w+)\}/g, (m, k) => vars[k] != null && vars[k] !== '' ? String(vars[k]) : '').replace(/,\s*([!?.¡¿])/g, '$1').replace(/¡\s*!\s*/g, '').replace(/\s{2,}/g, ' ').trim();
+  const item = list[i];
+  return typeof item === 'string' ? fill(item) : Object.assign({}, item, { text: fill(item.text) });
+}
+// Un dibujo de Karen con sus capas: cuerpo que respira, ánimo, accesorios y reacciones.
+// Lo usan la mascota flotante, la Escuela y las celebraciones; vb recorta el dibujo (MV = completo).
+class KarenFig {
+  constructor(vb = MV) {
+    this.frame = 'base'; this.timers = {}; this.mood = 'idle';
+    this.svg = svgEl('svg', { viewBox: `${vb.x} ${vb.y} ${vb.w} ${vb.h}`, preserveAspectRatio: 'xMidYMin meet', class: 'm-svg', 'aria-hidden': 'true' });
+    this.img = svgEl('image', { href: MASCOT.frames.base, x: 0, y: 0, width: MASCOT.w, height: MASCOT.h });
+    this.props = svgEl('g', { class: 'm-props' }); this.emote = svgEl('g', { class: 'm-emote' });
+    this.svg.append(this.img, this.props, this.emote);
+    this.body = h('div', { class: 'm-body' }); this.body.append(this.svg);
+  }
+  has(f) { return !!(f && MASCOT.frames[f]); }
+  setFrame(f) {
+    const name = this.has(f) ? f : 'base';
+    if (name === this.frame) return;
+    this.frame = name; this.img.setAttribute('href', MASCOT.frames[name]);
+  }
+  pose({ mood = 'idle', prop = null, emote = null } = {}, bigEmote = false) {
+    this.mood = mood; this.setFrame(MASCOT.moodFrame[mood]);
+    this.body.removeAttribute('data-mood'); void this.body.offsetWidth; this.body.setAttribute('data-mood', mood);
+    this.props.innerHTML = [].concat(prop || []).map(p => PROPS[p] || '').join('');
+    this.emote.innerHTML = emote && EMOTES[emote] ? EMOTES[emote] : '';
+    // en pantallas chicas las reacciones se dibujan un poco más grandes para que se lean
+    this.emote.setAttribute('transform', bigEmote ? 'translate(170 0) scale(1.3) translate(-170 0)' : '');
+  }
+  startTalk() {
+    this.body.classList.add('talking');
+    if (!this.has(MASCOT.talkFrame)) return;
+    let open = false; clearInterval(this.timers.talk);
+    this.timers.talk = setInterval(() => { open = !open; this.img.setAttribute('href', MASCOT.frames[open ? MASCOT.talkFrame : this.frame]); }, 130);
+  }
+  stopTalk() {
+    this.body.classList.remove('talking');
+    clearInterval(this.timers.talk); this.img.setAttribute('href', MASCOT.frames[this.frame]);
+  }
+  startBlink(alive) {
+    clearTimeout(this.timers.blink);
+    if (!this.has(MASCOT.blinkFrame) || reduceMotion) return;
+    const go = () => {
+      if (!alive()) return;
+      if (!this.body.classList.contains('talking') && this.frame !== MASCOT.blinkFrame) {
+        this.img.setAttribute('href', MASCOT.frames[MASCOT.blinkFrame]);
+        setTimeout(() => this.img.setAttribute('href', MASCOT.frames[this.frame]), 130);
+      }
+      this.timers.blink = setTimeout(go, 2500 + Math.random() * 3500);
+    };
+    this.timers.blink = setTimeout(go, 1800);
+  }
+  stopBlink() { clearTimeout(this.timers.blink); }
+}
+// Escribe letra por letra con una vocecita por letra, como en los juegos de rol. Cada globo tarda 2.6 s como máximo:
+// los textos largos van más rápido. El globo ya tiene su tamaño final desde el principio, así no "brinca".
+class Typer {
+  constructor() { this.cur = null; this.t = null; }
+  type(el, text, fig, done) {
+    this.stop();
+    const shown = h('span', { class: 'ty-text', 'aria-hidden': 'true' });
+    el.textContent = '';
+    el.append(h('span', { class: 'ty-ghost', 'aria-hidden': 'true' }, text), shown, h('span', { class: 'visually-hidden' }, text));
+    const pause = { '.': 4, '!': 4, '?': 4, ',': 2.5, ':': 2.5, ';': 2.5, '…': 4 };
+    const chars = [...text], weight = chars.reduce((a, c) => a + (pause[c] || 1), 0);
+    const step = clamp(2600 / weight, 8, 34);
+    let i = 0, lastSnd = 0;
+    const cur = this.cur = { text, shown, done, fig };
+    if (fig) fig.startTalk();
+    const tick = () => {
+      if (this.cur !== cur) return;
+      if (i >= chars.length) return this.finish();
+      const c = chars[i++]; shown.textContent = chars.slice(0, i).join('');
+      if (/[A-Za-zÁÉÍÓÚÜÑáéíóúüñ0-9]/.test(c)) { const now = performance.now(); if (now - lastSnd > 18) { lastSnd = now; Sound.play('voice'); } }
+      this.t = setTimeout(tick, step * (pause[c] || 1));
+    };
+    tick();
+  }
+  finish() {
+    const c = this.cur; if (!c) return;
+    clearTimeout(this.t); this.cur = null;
+    c.shown.textContent = c.text; if (c.fig) c.fig.stopTalk();
+    if (c.done) c.done();
+  }
+  stop() { const c = this.cur; clearTimeout(this.t); this.cur = null; if (c && c.fig) c.fig.stopTalk(); }
+}
 const Mascot = {
-  el: null, mode: null, shown: false, lastAt: 0, lastIdle: Date.now(), lastPuzzle: 0, frame: 'base', timers: {},
+  el: null, mode: null, shown: false, lastAt: 0, lastIdle: Date.now(), lastPuzzle: 0, timers: {}, ty: new Typer(),
+  get typing() { return this.ty.cur; },
   enabled() { return S.settings.mascot !== false; },
   has(f) { return !!(f && MASCOT.frames[f]); },
   mount() {
     if (this.el) return;
-    const svg = svgEl('svg', { viewBox: `${MV.x} ${MV.y} ${MV.w} ${MV.h}`, class: 'm-svg', 'aria-hidden': 'true' });
-    this.img = svgEl('image', { href: MASCOT.frames.base, x: 0, y: 0, width: MASCOT.w, height: MASCOT.h });
-    this.props = svgEl('g', { class: 'm-props' }); this.emote = svgEl('g', { class: 'm-emote' });
+    this.f = new KarenFig(MV);
     const hit = svgEl('rect', { class: 'm-hit', x: 30, y: 0, width: 300, height: 760, fill: 'transparent' });
     hit.addEventListener('click', () => this.tap());
-    svg.append(this.img, this.props, this.emote, hit);
-    this.body = h('div', { class: 'm-body' }); this.body.append(svg);
+    this.f.svg.append(hit);
+    this.body = this.f.body;
     this.fig = h('div', { class: 'm-fig' }); this.fig.append(this.body);
-    this.bub = h('div', { class: 'm-bubble speech', role: 'status', 'aria-live': 'polite', onclick: () => (this.typing ? this.finishType() : this.hide()) });
+    this.bub = h('div', { class: 'm-bubble speech', role: 'status', 'aria-live': 'polite', onclick: () => (this.ty.cur ? this.finishType() : this.hide()) });
     this.el = h('div', { class: 'mascot' }, this.fig, this.bub);
     document.body.append(this.el);
     for (const src of Object.values(MASCOT.frames)) { const im = new Image(); im.src = src; }
@@ -799,98 +1004,39 @@ const Mascot = {
     this.bub.classList.toggle('above', above);
     return this.geo;
   },
-  setFrame(f) {
-    const name = this.has(f) ? f : 'base';
-    if (name === this.frame) return;
-    this.frame = name; this.img.setAttribute('href', MASCOT.frames[name]);
-  },
-  pose({ mood = 'idle', prop = null, emote = null } = {}) {
+  pose(o = {}) {
     this.mount();
-    this.mood = mood; this.setFrame(MASCOT.moodFrame[mood]);
-    this.body.removeAttribute('data-mood'); void this.body.offsetWidth; this.body.setAttribute('data-mood', mood);
-    const props = [].concat(prop || []);
-    this.props.innerHTML = props.map(p => PROPS[p] || '').join('');
-    this.emote.innerHTML = emote && EMOTES[emote] ? EMOTES[emote] : '';
-    // en pantallas chicas las reacciones se dibujan un poco más grandes para que se lean
-    this.emote.setAttribute('transform', this.geo && this.geo.s < 0.36 ? 'translate(170 0) scale(1.3) translate(-170 0)' : '');
+    this.mood = o.mood || 'idle';
+    this.f.pose(o, !!(this.geo && this.geo.s < 0.36));
   },
   show() {
     this.mount();
     if (!this.shown) { this.shown = true; void this.fig.offsetWidth; Sound.play('pop'); }
     this.el.classList.add('show');
-    this.startBlink();
+    this.f.startBlink(() => this.shown);
   },
   hide(now) {
     if (!this.el) return;
     clearTimeout(this.timers.auto); clearTimeout(this.timers.bub); this.stopType();
     this.bub.classList.remove('on');
     if (tour) return;
-    this.shown = false; clearTimeout(this.timers.blink);
+    this.shown = false; this.f.stopBlink();
     if (now) { this.el.classList.add('instant'); setTimeout(() => this.el && this.el.classList.remove('instant'), 60); }
     this.el.classList.remove('show');
   },
   tap() {
-    if (this.typing) return this.finishType();
+    if (this.ty.cur) return this.finishType();
     if (!tour) return this.hide();
     this.pose({ mood: 'happy', emote: 'heart' }); haptic(15);
     clearTimeout(this.timers.tap);
     this.timers.tap = setTimeout(() => { if (tour) this.pose(tour.steps[tour.i]); }, 1400);
   },
-  // Escribe letra por letra con una vocecita por letra, como en los juegos de rol. Cada globo tarda 2.6 s como máximo:
-  // los textos largos van más rápido. El globo ya tiene su tamaño final desde el principio, así no "brinca".
-  type(el, text, done) {
-    this.stopType();
-    const shown = h('span', { class: 'ty-text', 'aria-hidden': 'true' });
-    el.textContent = '';
-    el.append(h('span', { class: 'ty-ghost', 'aria-hidden': 'true' }, text), shown, h('span', { class: 'visually-hidden' }, text));
-    const pause = { '.': 4, '!': 4, '?': 4, ',': 2.5, ':': 2.5, ';': 2.5, '…': 4 };
-    const chars = [...text], weight = chars.reduce((a, c) => a + (pause[c] || 1), 0);
-    const step = clamp(2600 / weight, 8, 34);
-    let i = 0, lastSnd = 0;
-    this.typing = { text, shown, done };
-    this.startTalk();
-    const tick = () => {
-      if (!this.typing || this.typing.shown !== shown) return;
-      if (i >= chars.length) return this.finishType();
-      const c = chars[i++]; shown.textContent = chars.slice(0, i).join('');
-      if (/[A-Za-zÁÉÍÓÚÜÑáéíóúüñ0-9]/.test(c)) { const now = performance.now(); if (now - lastSnd > 18) { lastSnd = now; Sound.play('voice'); } }
-      this.timers.type = setTimeout(tick, step * (pause[c] || 1));
-    };
-    tick();
-  },
-  finishType() {
-    const t = this.typing; if (!t) return;
-    clearTimeout(this.timers.type); this.typing = null;
-    t.shown.textContent = t.text; this.stopTalk();
-    if (t.done) t.done();
-  },
-  stopType() { clearTimeout(this.timers.type); this.typing = null; if (this.body) this.stopTalk(); },
-  startTalk() {
-    this.body.classList.add('talking');
-    if (!this.has(MASCOT.talkFrame)) return;
-    let open = false; clearInterval(this.timers.talk);
-    this.timers.talk = setInterval(() => { open = !open; this.img.setAttribute('href', MASCOT.frames[open ? MASCOT.talkFrame : this.frame]); }, 130);
-  },
-  stopTalk() {
-    if (this.body) this.body.classList.remove('talking');
-    clearInterval(this.timers.talk); if (this.img) this.img.setAttribute('href', MASCOT.frames[this.frame]);
-  },
-  startBlink() {
-    clearTimeout(this.timers.blink);
-    if (!this.has(MASCOT.blinkFrame) || reduceMotion) return;
-    const go = () => {
-      if (!this.shown) return;
-      if (!this.body.classList.contains('talking') && this.frame !== MASCOT.blinkFrame) {
-        this.img.setAttribute('href', MASCOT.frames[MASCOT.blinkFrame]);
-        setTimeout(() => this.img.setAttribute('href', MASCOT.frames[this.frame]), 130);
-      }
-      this.timers.blink = setTimeout(go, 2500 + Math.random() * 3500);
-    };
-    this.timers.blink = setTimeout(go, 1800);
-  },
+  type(el, text, done) { this.mount(); this.ty.type(el, text, this.f, done); },
+  finishType() { this.ty.finish(); },
+  stopType() { this.ty.stop(); },
   // consejo con globo; se cierra solo o al tocarlo
   say(text, o = {}) {
-    if (tour) return false;
+    if (tour || !text) return false;
     if (!o.force && (!this.enabled() || document.body.classList.contains('gated'))) return false;
     if (!o.force && Date.now() - this.lastAt < (o.gap == null ? 15000 : o.gap)) return false;
     this.lastAt = Date.now();
@@ -910,23 +1056,30 @@ const Mascot = {
     const say = (text, o) => this.say(text, o);
     switch (kind) {
       case 'greet': {
-        const day = todayStr(), rec = S.daily[day];
-        return say(`¡Hola de nuevo${name ? ', ' + name : ''}! ` + (rec && rec.done ? 'Ya hiciste el reto de hoy. ¿Seguimos con tus niveles?' : `Ya está el reto diario #${dailyNumber(day)}. Cinco puzzles y no gasta vidas.`), { mood: 'wave', emote: 'sparkle', gap: 0 });
+        const day = todayStr(), rec = S.daily[day], hr = new Date().getHours(), sd = streakDays();
+        const back = d.prevVisit && Date.now() - d.prevVisit > 3 * 864e5;
+        const first = karenLine(back ? 'greetBack' : hr >= 5 && hr < 12 ? 'greetMorning' : hr >= 12 && hr < 19 ? 'greetAfternoon' : 'greetNight', { name });
+        const second = sd >= 3 && Math.random() < 0.5 ? karenLine('greetStreak', { streak: sd })
+          : schoolGated() ? 'Hoy toca seguir en mi escuela: ¡ya casi sabes jugar!'
+            : rec && rec.done ? karenLine('greetDailyDone') : karenLine('greetDaily', { n: dailyNumber(day) });
+        return say(first + ' ' + second, { mood: 'wave', emote: 'sparkle', gap: 0 });
       }
-      case 'idle': { const t = TIP_POOL[Math.floor(Math.random() * TIP_POOL.length)]; return say(t.text, t); }
+      case 'idle': { const t = karenLine('idle'); return say(t.text, t); }
       case 'puzzle-fail': {
         if (Date.now() - this.lastPuzzle < 90000) return false;
         const meta = WORLD_META[THEME_WORLD(d.themes || [])] || WORLD_META.mix;
-        const ok = say(meta.lesson[Math.floor(Math.random() * meta.lesson.length)], { mood: 'worry', emote: 'sweat', gap: 0, ms: 7000 });
+        const text = Math.random() < 0.5 ? meta.lesson[Math.floor(Math.random() * meta.lesson.length)] : karenLine('puzzleFail');
+        const ok = say(text, { mood: 'worry', emote: 'sweat', gap: 0, ms: 7000 });
         if (ok) this.lastPuzzle = Date.now(); return ok;
       }
-      case 'level-perfect': return say('¡Cinco de cinco sin ayuda! Así se ganan los rangos.', { mood: 'cheer', prop: 'partyhat', emote: 'sparkle', gap: 0 });
-      case 'level-pass': return Math.random() < 0.5 && say('¡Pasaste! Para las 3 estrellas necesitas 5 de 5 sin pistas. Si repites, te tocan puzzles nuevos.', { mood: 'happy', emote: 'sparkle', gap: 0 });
-      case 'level-fail': return say('Tranquilo, así se aprende. Al repetir te tocan puzzles nuevos, y "Ver lección" te recuerda el patrón.', { mood: 'worry', emote: 'sweat', gap: 0 });
-      case 'no-lives': return say('Te quedaste sin vidas. Descansa un rato o repasa tus errores: repasar no gasta vidas.', { mood: 'sleepy', prop: 'nightcap', emote: 'zzz', gap: 0, ms: 9000 });
-      case 'daily-done': return say('¡Reto del día listo! Compártelo y vuelve mañana por otro.', { mood: 'cheer', emote: 'sparkle', gap: 0 });
-      case 'rank-up': return say(d.k === RANKS.length - 1 ? '¡Llegaste a Rey! Lo lograste de verdad.' : `¡Ahora eres ${RANKS[d.k].name}! Sigue así y la corona es tuya.`, { mood: 'cheer', prop: 'crown', emote: 'sparkle', gap: 0, force: this.enabled() });
-      case 'analysis': return say(d.n ? `Revisé tu partida: ${d.n} ${d.n === 1 ? 'error tuyo ya es un puzzle' : 'errores tuyos ya son puzzles'} en "Tu entrenamiento".` : 'Revisé tu partida y no hay errores graves tuyos. ¡Bien jugado!',
+      case 'streak': return say(karenLine('streak'), { mood: 'cheer', emote: Math.random() < 0.5 ? 'sparkle' : 'heart', gap: 0, ms: 3600 });
+      case 'level-perfect': return say(karenLine('perfect', { name, rating: Math.round(S.rating) }), { mood: 'cheer', prop: 'partyhat', emote: 'sparkle', gap: 0 });
+      case 'level-pass': return Math.random() < 0.5 && say(karenLine('pass'), { mood: 'happy', emote: 'sparkle', gap: 0 });
+      case 'level-fail': return say(karenLine('fail'), { mood: 'worry', emote: 'sweat', gap: 0 });
+      case 'no-lives': return say(karenLine('noLives'), { mood: 'sleepy', prop: 'nightcap', emote: 'zzz', gap: 0, ms: 9000 });
+      case 'daily-done': return say(karenLine(d.perfect ? 'dailyPerfect' : 'daily'), { mood: 'cheer', emote: 'sparkle', prop: d.perfect ? 'partyhat' : null, gap: 0 });
+      case 'rank-up': return say(d.k === RANKS.length - 1 ? karenLine('rankTop') : karenLine('rankUp', { rank: RANKS[d.k].name }), { mood: 'cheer', prop: 'crown', emote: 'sparkle', gap: 0, force: this.enabled() });
+      case 'analysis': return say(d.n > 1 ? karenLine('analysisSome', { n: d.n }) : d.n === 1 ? karenLine('analysisOne') : karenLine('analysisNone'),
         d.n ? { mood: 'think', prop: ['glasses', 'magnifier'], emote: 'idea', gap: 0 } : { mood: 'cheer', prop: 'glasses', emote: 'sparkle', gap: 0 });
     }
     return false;
@@ -1110,19 +1263,24 @@ const wp = cp => 50 + 50 * (2 / (1 + Math.exp(-0.00368208 * clamp(cp, -10000, 10
 let currentTab = 'map';
 function showView(name) {
   Music.view = name; Music.update();
+  if (SCH_TY && name !== 'school') SCH_TY.stop();
   if (!tour && Mascot.shown) Mascot.hide();
   for (const v of $$('.view')) v.hidden = v.dataset.view !== name;
-  $('#tabbar').hidden = name === 'play';
+  $('#tabbar').hidden = name === 'play' || name === 'lesson';
+  document.body.classList.toggle('in-school', name === 'school' || name === 'lesson');
+  if (name === 'lesson') $('#app').classList.add('wide');
   window.scrollTo({ top: 0 });
 }
 function setTab(name) {
+  if (LS) schClose(true);
   currentTab = name;
   $('#app').classList.remove('wide');
   for (const t of $$('.tab')) t.setAttribute('aria-selected', t.dataset.tab === name ? 'true' : 'false');
-  const ti = ['map', 'analyze', 'progress'].indexOf(name);
+  const ti = ['map', 'school', 'analyze', 'progress'].indexOf(name);
   if (ti >= 0) $('.tabbar-inner').style.setProperty('--ti', ti);
   showView(name);
   if (name === 'map') renderMap(true);
+  if (name === 'school') renderSchool();
   if (name === 'analyze') renderAnalyze();
   if (name === 'progress') renderProgress();
 }
@@ -1187,7 +1345,8 @@ let mapScrolled = false;
 function renderMap(scroll) {
   renderChips();
   const root = $('#view-map'); root.textContent = '';
-  const ws = worldState();
+  const ws = worldState(), gated = schoolGated();
+  if (gated) root.append(schoolCta());
 
   // reto diario
   {
@@ -1252,7 +1411,7 @@ function renderMap(scroll) {
     if (w.unlocked && !w.done && w.current >= 0 && w.lv.length >= 3) {
       rowBtns.append(h('button', { class: 'btn small', onclick: () => startSkip(w.key) }, 'Examen para saltar'));
     }
-    if (!w.unlocked) rowBtns.append(h('span', { class: 'prog' }, 'Completa el mundo anterior para abrirlo'));
+    if (!w.unlocked) rowBtns.append(h('span', { class: 'prog' }, gated ? 'Se abre al terminar lo básico en la Escuela' : 'Completa el mundo anterior para abrirlo'));
     banner.append(rowBtns, h('div', { class: 'wb-bar', role: 'progressbar', 'aria-label': 'Niveles superados', 'aria-valuemin': 0, 'aria-valuemax': w.lv.length, 'aria-valuenow': doneCount },
       h('i', { style: { width: (100 * doneCount / w.lv.length) + '%' } })));
     sec.append(banner);
@@ -1633,6 +1792,12 @@ function record(sc) {
     if (m) { m.seen = (m.seen || 0) + 1; if (sc === 1) { m.wins = (m.wins || 0) + 1; if (m.wins >= 2) m.mastered = true; } else m.wins = 0; }
   }
   if (sc > 0) { S.solved++; touchStreak(); }
+  // tres seguidos sin ayuda: Karen festeja (una vez por sesión)
+  session.run = sc === 1 ? (session.run || 0) + 1 : 0;
+  if (session.run === 3 && !session.cheered && session.i < session.puzzles.length - 1) {
+    session.cheered = true; const s0 = session;
+    setTimeout(() => { if (session === s0) Mascot.react('streak'); }, 700);
+  }
   if (session.kind === 'daily') {
     S.daily[session.date] = { n: dailyNumber(session.date), res: session.results.slice(0, session.i + 1), ms: session.msBefore + (Date.now() - session.t0), done: false };
     const keys = Object.keys(S.daily).sort(); while (keys.length > 60) delete S.daily[keys.shift()];
@@ -1715,7 +1880,7 @@ function finishSession() {
   if (rankUp) setTimeout(() => showAscension(rankNow), 1100);
   else setTimeout(() => {
     if (session || Music.view !== 'play' || !$('#view-play .result')) return; // ya salió de la pantalla de resultado
-    if (s0.kind === 'daily') Mascot.react('daily-done');
+    if (s0.kind === 'daily') Mascot.react('daily-done', { perfect: pts >= 5 });
     else if (s0.kind === 'level' || s0.kind === 'skip') Mascot.react(!passed ? (S.lives === 0 ? 'no-lives' : 'level-fail') : stars === 3 ? 'level-perfect' : 'level-pass');
   }, 1700);
   if (delta) countUp($('#rating-delta'), delta, v => (delta > 0 ? '+' : '−') + Math.abs(v));
@@ -2310,6 +2475,7 @@ function renderProgress() {
         h('span', { class: 'req-mark', 'aria-hidden': 'true' }, x.ok ? '✓' : ''), h('span', null, x.label), h('span', { class: 'mono req-have' }, x.have)))) : null,
       h('div', { class: 'rank-foot' }, ladder(k), h('span', { class: 'muted' }, 'Tu rango nunca baja. Rey pide 1500 de rating y todos los niveles con 3 estrellas.'))));
   }
+  root.append(schoolProgressCard());
   root.append(h('div', { class: 'kpi' },
     h('div', { class: 'card' }, h('div', { class: 'v' }, String(Math.round(S.rating))), h('div', { class: 'l' }, 'Rating táctico estimado')),
     h('div', { class: 'card' }, h('div', { class: 'v' }, String(S.solved)), h('div', { class: 'l' }, 'Puzzles resueltos')),
@@ -2457,7 +2623,8 @@ const authMsg = e => AUTH_ERR[e && e.code] || 'No se pudo entrar. Intenta de nue
 function refreshAll() {
   renderChips();
   if (session) return;
-  if (currentTab === 'map') renderMap(false); else if (currentTab === 'progress') renderProgress(); else if (AZ.view === 'home') renderAnalyze();
+  if (LS) return;
+  if (currentTab === 'map') renderMap(false); else if (currentTab === 'progress') renderProgress(); else if (currentTab === 'school') renderSchool(); else if (AZ.view === 'home') renderAnalyze();
 }
 function fbRef(uid) {
   const doc = Auth.fb.firestore().collection('users').doc(uid);
@@ -2546,6 +2713,7 @@ const Profiles = {
       this.saveList(l.slice(0, 8));
     }
     if (session) { session = null; if (board) { board.setInteractive(false); board.setPick(null); } }
+    if (LS) schClose(true);
     S = defaultState(); localSave(); mapScrolled = false; Mascot.hide(true); Music.update();
     gate('welcome', { info: wipe ? 'Cerraste sesión y se borraron tus datos de este navegador.' : 'Cerraste sesión. Tu perfil quedó guardado en este navegador.' });
   },
@@ -2594,6 +2762,7 @@ function gate(step, opts = {}) {
   if (step !== 'profile') { gateState.platform = undefined; gateState.level = undefined; }
   document.body.classList.add('gated');
   if (tour) finishTour(false, true);
+  if (LS) schClose(true);
   Mascot.hide(true);
   renderGate();
 }
@@ -2611,7 +2780,7 @@ function renderGate() {
       h('div', null,
         h('div', { class: 'section-title', style: { margin: 0 } }, 'Entrenador de ajedrez gratuito'),
         h('h1', { class: 'gate-title' }, 'De Peón a Rey'),
-        h('p', { class: 'gate-lead' }, 'Puzzles por niveles, un reto diario y la revisión de tus partidas con Stockfish. Tus errores se vuelven tus próximos ejercicios.')),
+        h('p', { class: 'gate-lead' }, 'Aprende desde cero con Karen, entrena táctica por niveles y revisa tus partidas con Stockfish. Tus errores se vuelven tus próximos ejercicios.')),
       ...gateNotices());
     const saved = G.upgrade ? [] : Profiles.list();
     if (saved.length) {
@@ -2688,9 +2857,9 @@ function renderGate() {
     h('div', { class: 'photo-row' }, avatarEl('avatar', curPhoto),
       h('button', { type: 'button', class: 'btn small', onclick: async () => { const d = await pickPhoto(); if (d) { keep(); G._photo = d; renderGate(); } } }, curPhoto ? 'Cambiar foto' : 'Elegir foto'),
       curPhoto ? h('button', { type: 'button', class: 'linkbtn', onclick: () => { keep(); G._photo = ''; renderGate(); } }, 'Quitar') : null));
-  const LEVELS = [['lt600', 'Empezando', 'menos de 600'], ['600', 'Intermedio', '600 a 1000'], ['1000', 'Avanzado', '1000 a 1400'], ['1400', 'Fuerte', 'más de 1400']];
+  const LEVELS = [['new', 'Todavía no sé jugar', 'Karen te enseña desde cero, pieza por pieza'], ['lt600', 'Empezando', 'menos de 600'], ['600', 'Intermedio', '600 a 1000'], ['1000', 'Avanzado', '1000 a 1400'], ['1400', 'Fuerte', 'más de 1400']];
   const lv = h('div', { class: 'choice-grid', role: 'group', 'aria-label': 'Tu nivel' },
-    LEVELS.map(([k, t, sub]) => h('button', { type: 'button', class: 'choice', 'aria-pressed': G.level === k ? 'true' : 'false', onclick: () => { G.level = k; G._name = name.value; G._user = user.value; renderGate(); } }, t, h('small', null, sub))));
+    LEVELS.map(([k, t, sub]) => h('button', { type: 'button', class: 'choice' + (k === 'new' ? ' wide' : ''), 'aria-pressed': G.level === k ? 'true' : 'false', onclick: () => { G.level = k; G._name = name.value; G._user = user.value; renderGate(); } }, t, h('small', null, sub))));
   box.append(
     h('div', { class: 'gate-head' },
       G.edit ? h('button', { class: 'icon-btn', 'aria-label': 'Cancelar', onclick: () => { closeGate(); refreshAll(); } }, icon('i-close')) : null,
@@ -2701,7 +2870,7 @@ function renderGate() {
       photoField,
       h('div', { class: 'field' }, h('span', null, '¿Dónde juegas?'), plat),
       G.platform === 'none' ? null : h('label', { class: 'field', for: 'pf-user' }, `Tu usuario de ${G.platform === 'lichess' ? 'Lichess' : 'Chess.com'} (opcional)`, user),
-      h('div', { class: 'field' }, h('span', null, '¿Qué elo tienes más o menos?'), lv),
+      h('div', { class: 'field' }, h('span', null, '¿Cuál es tu nivel?'), lv),
       ...gateNotices(),
       h('button', { class: 'btn primary big', type: 'submit' }, G.edit ? 'Guardar' : 'Continuar')));
   if (!name.value) setTimeout(() => name.focus({ preventScroll: true }), 50);
@@ -2716,9 +2885,11 @@ function saveProfile(name, platform, chessUser, level) {
   if (gateState._photo !== undefined) S.profile.photo = gateState._photo;
   if (platform !== 'none' && chessUser) { S.settings.platform = platform; S.settings.user = chessUser; }
   if (isNew && !S.ratingN) {
-    S.rating = { lt600: 700, '600': 800, '1000': 1000, '1400': 1200 }[S.profile.level] || 800;
+    S.rating = { new: 600, lt600: 700, '600': 800, '1000': 1000, '1400': 1200 }[S.profile.level] || 800;
     S.rankMax = 0; S.rankRules = 2;
   }
+  // quien todavía no sabe jugar empieza por lo básico en la Escuela; los mundos de táctica esperan
+  schState().needBasics = S.profile.level === 'new';
   if (!S.account) S.account = { provider: 'local' };
   save();
   const wasEdit = gateState.edit;
@@ -2731,16 +2902,21 @@ function saveProfile(name, platform, chessUser, level) {
 // ---------- tutorial guiado sobre el mapa
 let tour = null;
 function tourSteps() {
-  const name = (S.profile && S.profile.name) || '', N = MASCOT.name;
+  const name = (S.profile && S.profile.name) || '', N = MASCOT.name, gated = schoolGated();
   return [
     { sel: null, title: name ? `¡Hola, ${name}!` : '¡Hola!', text: `Soy ${N} y voy a acompañarte de peón a rey. Te enseño cómo funciona todo en menos de un minuto.`, mood: 'wave', emote: 'sparkle' },
     { sel: '.daily', title: 'Reto diario', text: 'Cinco puzzles al día, los mismos para todos. No gasta vidas y al terminar puedes compartir tu resultado.', mood: 'point', emote: 'sparkle' },
     { sel: '.world-banner', title: 'Mundos', text: 'Cada mundo entrena un tipo de táctica. Toca "Ver lección" para aprender el patrón antes de jugar.', mood: 'think', prop: 'glasses', emote: 'idea' },
-    { sel: '.node.current', title: 'Niveles', text: 'Cada intento son 5 puzzles. Pasas con 4 puntos y ganas 3 estrellas con 5 de 5 sin pistas. Si repites, te tocan puzzles nuevos. Si no pasas pierdes una vida; se recuperan cada 20 minutos.', mood: 'point', emote: 'exclaim' },
+    gated
+      ? { sel: '.school-cta', title: 'Primero, lo básico', text: 'Los mundos de táctica se abren cuando sepas mover las piezas. Para eso está mi escuela: empezamos desde cero, sin prisa.', mood: 'point', emote: 'exclaim' }
+      : { sel: '.node.current', title: 'Niveles', text: 'Cada intento son 5 puzzles. Pasas con 4 puntos y ganas 3 estrellas con 5 de 5 sin pistas. Si repites, te tocan puzzles nuevos. Si no pasas pierdes una vida; se recuperan cada 20 minutos.', mood: 'point', emote: 'exclaim' },
     { sel: '.rank-chip', fixed: true, title: 'Tu rango', text: 'Tu pieza asciende de Peón a Rey juntando rating táctico y mundos completados. Para Rey necesitas 1500 y todos los niveles con 3 estrellas. El rango nunca baja.', mood: 'cheer', prop: 'crown', emote: 'sparkle' },
+    { sel: '.tab[data-tab="school"]', fixed: true, title: 'Mi escuela', text: 'Aquí te enseño de todo: desde mover las piezas hasta aperturas, finales y planes, con prácticas contra mí. Cada bloque te da un título.', mood: 'happy', prop: 'glasses', emote: 'idea' },
     { sel: '.tab[data-tab="analyze"]', fixed: true, title: 'Analiza tus partidas', text: 'Trae tus partidas de Chess.com o Lichess. Stockfish revisa cada jugada y tus errores se vuelven puzzles en "Tu entrenamiento".', mood: 'think', prop: ['glasses', 'magnifier'] },
     { sel: '.tab[data-tab="progress"]', fixed: true, title: 'Tu progreso', text: `Aquí ves tu rango, tus temas débiles y tu cuenta. También puedes repetir este tutorial. Tocando tu foto, arriba a la derecha, apagas la música o mis consejos y cierras sesión.`, mood: 'happy', emote: 'heart' },
-    { sel: '.node.current', title: '¡Listo!', text: 'Empieza por el primer nivel. Cada puzzle que resuelves te acerca al siguiente rango. ¡Yo te echo porras!', mood: 'cheer', prop: 'partyhat', emote: 'sparkle' },
+    gated
+      ? { sel: '.tab[data-tab="school"]', fixed: true, title: '¡Listo!', text: 'Vamos a tu primera lección: el tablero. Te explico todo y luego practicas. ¡Yo te echo porras!', mood: 'cheer', prop: 'partyhat', emote: 'sparkle', cta: 'Ir a la primera lección' }
+      : { sel: '.node.current', title: '¡Listo!', text: 'Empieza por el primer nivel. Cada puzzle que resuelves te acerca al siguiente rango. ¡Yo te echo porras!', mood: 'cheer', prop: 'partyhat', emote: 'sparkle', cta: 'Jugar el primer nivel' },
   ];
 }
 // Mientras el tutorial está abierto la página no se mueve: ni rueda, ni dedo, ni teclado.
@@ -2814,7 +2990,7 @@ function renderTourBubble() {
       last ? h('span') : h('button', { class: 'linkbtn', onclick: () => finishTour(false) }, 'Saltar'),
       h('div', { class: 'row', style: { gap: '8px' } },
         i > 0 ? h('button', { class: 'btn small', onclick: () => tourGo(i - 1) }, 'Atrás') : null,
-        h('button', { class: 'btn small primary', id: 'tour-next', onclick: tourNext }, last ? 'Jugar el primer nivel' : i === 0 ? 'Empezar' : 'Siguiente'))));
+        h('button', { class: 'btn small primary', id: 'tour-next', onclick: tourNext }, last ? st0.cta || 'Empezar' : i === 0 ? 'Empezar' : 'Siguiente'))));
   p.addEventListener('click', () => Mascot.finishType());
   setTimeout(() => { if (tour && tour.bub === bub && bub.contains(p)) Mascot.type(p, st0.text); }, i === 0 ? 650 : 0);
   setTimeout(() => { const b = $('#tour-next'); if (b) b.focus({ preventScroll: true }); }, 30);
@@ -2843,7 +3019,10 @@ function finishTour(play, silent) {
   if (S.profile && !S.profile.tutorialDone) { S.profile.tutorialDone = true; save(); }
   if (silent) return;
   window.scrollTo({ top: 0, behavior: reduceMotion ? 'auto' : 'smooth' });
-  if (play) { const w = worldState().find(x => x.unlocked && x.current >= 0); if (w) startLevel(w.key, w.current); }
+  if (play) {
+    if (schoolGated()) { const r = schRecommended(); if (r) schOpen(r.l.id); return; }
+    const w = worldState().find(x => x.unlocked && x.current >= 0); if (w) startLevel(w.key, w.current);
+  }
 }
 
 // ---------- foto de perfil: se recorta cuadrada y se guarda pequeña (unos 10 KB) junto con el progreso
@@ -2934,8 +3113,10 @@ syncLives();
 renderChips();
 renderMap(true);
 initAccount();
+const prevVisit = S.lastVisit || 0;
+if (S.profile) { S.lastVisit = Date.now(); localSave(); }
 setTimeout(() => {
   if (!S.profile || !S.profile.tutorialDone || S.mascotDay === todayStr() || session || tour || Music.view !== 'map') return;
-  if (Mascot.react('greet')) { S.mascotDay = todayStr(); save(); }
+  if (Mascot.react('greet', { prevVisit })) { S.mascotDay = todayStr(); save(); }
 }, 2600);
 console.info('De Peón a Rey ' + APP_VERSION);

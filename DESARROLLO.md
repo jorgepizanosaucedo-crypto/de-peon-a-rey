@@ -58,12 +58,28 @@ python tools/lichess_puzzles.py
 python tools/build.py
 ```
 
+### Editar o agregar lecciones de la Escuela
+
+Todo el contenido de la Escuela (bloques, títulos, lecciones, posiciones, aperturas y prácticas) y las frases de Karen están en `src/lessons.js`. Cada lección es una lista de pasos: `say` (Karen explica), `tap` (tocar una casilla), `stars` (recoger estrellas), `move` (encontrar la jugada), `line` (jugar una apertura con flechas), `quiz` (pregunta), `play` (práctica contra Karen) y `recap` (resumen). Las jugadas van en notación inglesa (`Nf3`); los textos para la persona, en española (`Cf3`).
+
+Después de cambiar algo, revísalo con Stockfish (necesita Node.js y Stockfish en el PATH o en la variable `STOCKFISH`):
+
+```bash
+node tools/check_lessons.js            # legalidad, respuestas, notas de las aperturas y prácticas
+node tools/check_lessons.js --rapido   # solo legalidad, sin motor
+python tools/build.py
+```
+
+El revisor avisa si una jugada no es legal, si una respuesta pierde material, si falta aceptar un mate, si una nota dice una jugada distinta a la de la línea o si una práctica empieza en una posición que no se puede cumplir.
+
 ## Estructura
 
 ```
 src/app.template.html    estructura de la página
 src/styles.css           estilos
-src/app.js               lógica: tablero, niveles, rangos, motor, análisis, progreso, cuentas
+src/app.js               lógica: tablero, niveles, rangos, motor, análisis, progreso, cuentas, música, Karen
+src/school.js            Escuela: portada, lecciones, prácticas contra Karen y títulos
+src/lessons.js           contenido de la Escuela y frases de Karen
 src/pieces-sprite.svg    piezas
 assets/                  ícono, manifest, vista previa para redes y dibujos de la mascota
 assets/vendor/           chess.js y Firebase servidos desde el sitio (licencias en LICENSES.md)
@@ -71,14 +87,16 @@ assets/fonts/            tipografías (SIL OFL)
 engine/                  Stockfish (WASM y respaldo asm.js)
 data/                    puzzles revisados y libro de aperturas
 config/                  site.json y plantilla de firebase-config.js
-tools/                   build y generadores de puzzles, aperturas y partida de ejemplo
+tools/                   build, revisor de lecciones y generadores de puzzles, aperturas y partida de ejemplo
 docs/                    sitio listo para publicar (lo genera build.py)
 screenshots/             capturas del README
 ```
 
 ## Detalles técnicos
 
-- `tools/build.py` junta `src/app.template.html`, `src/styles.css`, `src/app.js` y los puzzles en `docs/index.html`, calcula la política de seguridad (CSP) y copia `assets/`, `engine/` y `data/openings.json`.
+- `tools/build.py` junta `src/app.template.html`, `src/styles.css`, `src/lessons.js`, `src/school.js`, `src/app.js` (en ese orden, en un solo script) y los puzzles en `docs/index.html`, calcula la política de seguridad (CSP) y copia `assets/`, `engine/` y `data/openings.json`.
+- En las prácticas, Karen juega como principiante en el nivel 0 (le gustan las capturas y a veces deja piezas) y con Stockfish en los niveles 1 a 4, eligiendo entre sus mejores jugadas con un margen que se achica en cada nivel.
 - La clasificación de jugadas usa la probabilidad de ganar y la fórmula de precisión de Lichess.
-- La música es un loop de bossa con piano eléctrico (síntesis FM), vibráfono, bajo, escobillas y reverberación.
+- La música se genera en el navegador: en los menús, un loop de bossa con piano eléctrico (síntesis FM), vibráfono, bajo, escobillas y reverberación; en la Escuela, un lo-fi para estudiar (Rhodes, bajo, batería con swing, kalimba y crujido de vinilo). Al cambiar de pestaña una baja y entra la otra.
+- Las frases de Karen salen de listas en `src/lessons.js` y no se repiten hasta agotar cada lista.
 - La mascota es un PNG con capas SVG encima (reacciones y accesorios) y animaciones CSS. Si se agregan más dibujos del mismo tamaño (`feliz`, `pensando`, `sorprendida`, `preocupada`, `habla`, `parpadeo`, `saludo`) en `assets/mascota/` y en `MASCOT.frames` de `src/app.js`, los usa sola: cambia de cara según el ánimo, parpadea y mueve la boca mientras habla.
