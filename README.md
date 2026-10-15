@@ -59,7 +59,7 @@ Sin anuncios, analíticas ni cookies. Sin cuenta, tu progreso nunca sale de tu n
 
 Hecho por **Jorge Luis Pizano Saucedo** ([@jorgepizanosaucedo-crypto](https://github.com/jorgepizanosaucedo-crypto)).
 
-Mi red social :D -- https://instagram.com/j_pizano0?srtk=MXYyNXViMW03M241Ng%3D%3D
+Karen, la mascota, fue ilustrada por **Karen**.
 
 ## Créditos y licencias
 
