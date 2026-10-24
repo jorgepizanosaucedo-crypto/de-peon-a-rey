@@ -99,4 +99,8 @@ screenshots/             capturas del README
 - La clasificación de jugadas usa la probabilidad de ganar y la fórmula de precisión de Lichess.
 - La música se genera en el navegador: en los menús, un loop de bossa con piano eléctrico (síntesis FM), vibráfono, bajo, escobillas y reverberación; en la Escuela, un lo-fi para estudiar (Rhodes, bajo, batería con swing, kalimba y crujido de vinilo). Al cambiar de pestaña una baja y entra la otra.
 - Las frases de Karen salen de listas en `src/lessons.js` y no se repiten hasta agotar cada lista.
-- La mascota es un PNG con capas SVG encima (reacciones y accesorios) y animaciones CSS. Si se agregan más dibujos del mismo tamaño (`feliz`, `pensando`, `sorprendida`, `preocupada`, `habla`, `parpadeo`, `saludo`) en `assets/mascota/` y en `MASCOT.frames` de `src/app.js`, los usa sola: cambia de cara según el ánimo, parpadea y mueve la boca mientras habla.
+- La mascota es el dibujo `assets/mascota/base.png` con capas encima, en este orden: ojos, boca, accesorios y reacciones (estas dos últimas en SVG), más animaciones CSS para el cuerpo.
+  - Los ojos (`ojos-*.png`) y la boca (`boca-*.png`) son PNG transparentes **del mismo tamaño que `base.png`**: solo tienen pixeles donde cambia la cara, así que se ponen en (0, 0) sin calcular posiciones.
+  - `MASCOT.faces` en `src/app.js` dice qué ojos y qué boca lleva cada ánimo (`null` = como en el dibujo original). Como ojos y boca van separados, Karen parpadea (`ojos-cerrados`) y mueve la boca al hablar (`boca-habla`, con pausas en comas y puntos) sin perder la expresión. Con movimiento reducido no parpadea y la boca solo se queda abierta mientras escribe.
+  - Para una expresión nueva: agrega el PNG con el mismo tamaño, su nombre en `MASCOT.eyes` o `MASCOT.mouths` y úsalo en `MASCOT.faces`.
+  - Para una pose de cuerpo completo (por ejemplo, saludando): PNG del mismo tamaño con la cabeza en el mismo lugar, en `MASCOT.poses` con el ánimo que la usa.

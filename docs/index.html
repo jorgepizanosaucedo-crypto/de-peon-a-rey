@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
 <meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-ra4P1SuLsh/IUoliWnZtLEBRUHfIlnhNYq7ikpqiO4E=' https://apis.google.com https://www.gstatic.com; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob: https://*.googleusercontent.com; connect-src 'self' https://api.chess.com https://lichess.org https://*.googleapis.com https://*.firebaseio.com wss://*.firebaseio.com https://*.firebaseapp.com https://apis.google.com; frame-src https://*.firebaseapp.com https://*.web.app https://accounts.google.com https://apis.google.com; worker-src 'self'; manifest-src 'self'; media-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-VLAp/H3+BcGwA9UAZF3kFLcpZPNd5V/bd3Yc4ANblIc=' https://apis.google.com https://www.gstatic.com; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob: https://*.googleusercontent.com; connect-src 'self' https://api.chess.com https://lichess.org https://*.googleapis.com https://*.firebaseio.com wss://*.firebaseio.com https://*.firebaseapp.com https://apis.google.com; frame-src https://*.firebaseapp.com https://*.web.app https://accounts.google.com https://apis.google.com; worker-src 'self'; manifest-src 'self'; media-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'">
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="description" content="Entrenador de ajedrez gratuito: aprende desde cero con Karen, entrena táctica por niveles y revisa tus partidas con Stockfish.">
@@ -2853,7 +2853,7 @@ class Engine {
   }
 }
 const engine = new Engine();
-const APP_VERSION = '2.1';
+const APP_VERSION = '2.2';
 
 // ---------------------------------------------------------------- sonido y celebraciones
 // Sonidos sintetizados con Web Audio: no hay archivos que descargar y funcionan sin conexión.
@@ -3207,17 +3207,36 @@ const Music = {
 }
 
 // ---------------------------------------------------------------- mascota
-// Personaje ilustrado por Karen. Con un solo dibujo se anima por capas: el cuerpo respira, salta y se inclina,
-// encima aparecen reacciones estilo manga (gota, brillos, "!", idea…) y accesorios (corona, lentes, lupa…).
-// Cuando haya más dibujos del mismo tamaño (expresiones, parpadeo, boca hablando, saludo) basta con
-// agregarlos a MASCOT.frames con su nombre: la mascota los usa sola.
+// Personaje ilustrado por Karen. Se anima por capas: el cuerpo respira, salta y se inclina; encima va la cara
+// (ojos y boca, hechos a partir de su dibujo), luego los accesorios (corona, lentes, lupa…) y las reacciones
+// estilo manga (gota, brillos, "!", idea…). Ojos y boca son capas separadas: así parpadea y mueve la boca
+// al hablar sin perder la expresión. Cada capa es un PNG transparente del mismo tamaño que base.png
+// (assets/mascota/ojos-*.png y boca-*.png); null en una cara quiere decir "como en el dibujo original".
 const MASCOT = {
   name: 'Karen',
   w: 420, h: 1102, // tamaño del dibujo base en sus unidades (pixeles del PNG)
-  frames: { base: 'mascota/base.png' },
-  moodFrame: { happy: 'feliz', cheer: 'feliz', wave: 'saludo', think: 'pensando', surprise: 'sorprendida', worry: 'preocupada', angry: 'preocupada', sleepy: 'parpadeo', point: 'feliz' },
-  talkFrame: 'habla', blinkFrame: 'parpadeo',
+  base: 'mascota/base.png',
+  eyes: ['cerrados', 'feliz', 'guino', 'sorprendida', 'pensando', 'preocupada'],
+  mouths: ['sonrisa', 'abierta', 'grande', 'o', 'dormida', 'hmm', 'ondulada', 'habla'],
+  faces: { // ánimo: [ojos, boca]
+    idle: [null, null], point: [null, 'sonrisa'], happy: ['feliz', 'abierta'], cheer: ['feliz', 'grande'],
+    wave: ['guino', null], think: ['pensando', 'hmm'], surprise: ['sorprendida', 'o'], worry: ['preocupada', 'ondulada'],
+    angry: ['preocupada', 'ondulada'], sleepy: ['cerrados', 'dormida'],
+  },
+  blink: 'cerrados', talk: 'habla',
+  openEyes: [null, 'sorprendida', 'pensando', 'preocupada'], // las que pueden parpadear
+  // Poses de cuerpo completo (por ejemplo, saludando con la mano) que dibuje Karen: PNG del mismo tamaño que
+  // base.png, con la cabeza en el mismo lugar para que la cara siga encajando. Ej.: wave: 'mascota/pose-saludo.png'
+  poses: {},
+  src: (kind, name) => `mascota/${kind}-${name}.png`,
+  all() { return [this.base, ...Object.values(this.poses), ...this.eyes.map(n => this.src('ojos', n)), ...this.mouths.map(n => this.src('boca', n))]; },
 };
+// Se cargan una sola vez para que el primer parpadeo o la primera sonrisa no tarden.
+let mascotLoaded = false;
+function preloadMascot() {
+  if (mascotLoaded) return; mascotLoaded = true;
+  for (const src of MASCOT.all()) { const im = new Image(); im.decoding = 'async'; im.src = src; }
+}
 const MV = { x: -90, y: -210, w: 620, h: 1312 }; // lienzo con espacio para reacciones arriba y a los lados
 const KHEAD = { x: 30, y: -6, w: 310, h: 310 };   // solo la cara, para el circulito junto al tablero
 const INK = '#1b1424', RED = '#e3141b';
@@ -3265,51 +3284,79 @@ function karenLine(pool, vars = {}) {
 // Lo usan la mascota flotante, la Escuela y las celebraciones; vb recorta el dibujo (MV = completo).
 class KarenFig {
   constructor(vb = MV) {
-    this.frame = 'base'; this.timers = {}; this.mood = 'idle';
+    preloadMascot();
+    this.timers = {}; this.mood = 'idle'; this.face = MASCOT.faces.idle; this.shown = [null, null]; this.talking = false;
     this.svg = svgEl('svg', { viewBox: `${vb.x} ${vb.y} ${vb.w} ${vb.h}`, preserveAspectRatio: 'xMidYMin meet', class: 'm-svg', 'aria-hidden': 'true' });
-    this.img = svgEl('image', { href: MASCOT.frames.base, x: 0, y: 0, width: MASCOT.w, height: MASCOT.h });
+    const layer = () => svgEl('image', { x: 0, y: 0, width: MASCOT.w, height: MASCOT.h, display: 'none' });
+    this.img = svgEl('image', { href: MASCOT.base, x: 0, y: 0, width: MASCOT.w, height: MASCOT.h });
+    this.eyes = layer(); this.mouth = layer();
     this.props = svgEl('g', { class: 'm-props' }); this.emote = svgEl('g', { class: 'm-emote' });
-    this.svg.append(this.img, this.props, this.emote);
+    this.svg.append(this.img, this.eyes, this.mouth, this.props, this.emote);
     this.body = h('div', { class: 'm-body' }); this.body.append(this.svg);
+    // parpadea sola mientras esté en la página (la mascota flotante lo controla ella misma al mostrarse)
+    const born = Date.now();
+    this.startBlink(() => this.body.isConnected || Date.now() - born < 4000);
   }
-  has(f) { return !!(f && MASCOT.frames[f]); }
-  setFrame(f) {
-    const name = this.has(f) ? f : 'base';
-    if (name === this.frame) return;
-    this.frame = name; this.img.setAttribute('href', MASCOT.frames[name]);
+  // pone una capa de la cara; si el nombre es null se ve la del dibujo original
+  setLayer(i, name) {
+    if (this.shown[i] === name) return;
+    this.shown[i] = name;
+    const el = i ? this.mouth : this.eyes;
+    if (!name) { el.setAttribute('display', 'none'); return; }
+    el.setAttribute('href', MASCOT.src(i ? 'boca' : 'ojos', name)); el.removeAttribute('display');
   }
   pose({ mood = 'idle', prop = null, emote = null } = {}, bigEmote = false) {
-    this.mood = mood; this.setFrame(MASCOT.moodFrame[mood]);
+    this.mood = mood; this.face = MASCOT.faces[mood] || MASCOT.faces.idle;
+    const body = MASCOT.poses[mood] || MASCOT.base;
+    if (this.img.getAttribute('href') !== body) this.img.setAttribute('href', body);
+    clearTimeout(this.timers.unblink);
+    this.setLayer(0, this.face[0]);
+    if (!this.talking) this.setLayer(1, this.face[1]); // si está hablando, la boca nueva entra en el siguiente movimiento
     this.body.removeAttribute('data-mood'); void this.body.offsetWidth; this.body.setAttribute('data-mood', mood);
     this.props.innerHTML = [].concat(prop || []).map(p => PROPS[p] || '').join('');
     this.emote.innerHTML = emote && EMOTES[emote] ? EMOTES[emote] : '';
     // en pantallas chicas las reacciones se dibujan un poco más grandes para que se lean
     this.emote.setAttribute('transform', bigEmote ? 'translate(170 0) scale(1.3) translate(-170 0)' : '');
   }
+  // Al hablar la boca se abre y se cierra a un ritmo un poco irregular, como al decir sílabas.
+  // Con movimiento reducido solo se queda abierta mientras escribe.
   startTalk() {
-    this.body.classList.add('talking');
-    if (!this.has(MASCOT.talkFrame)) return;
-    let open = false; clearInterval(this.timers.talk);
-    this.timers.talk = setInterval(() => { open = !open; this.img.setAttribute('href', MASCOT.frames[open ? MASCOT.talkFrame : this.frame]); }, 130);
+    this.body.classList.add('talking'); this.talking = true;
+    clearTimeout(this.timers.talk);
+    if (reduceMotion) { this.setLayer(1, MASCOT.talk); return; }
+    let open = false;
+    const flap = () => {
+      open = !open; this.setLayer(1, open ? MASCOT.talk : this.face[1]);
+      this.timers.talk = setTimeout(flap, open ? 100 + Math.random() * 70 : 70 + Math.random() * 60);
+    };
+    flap();
+  }
+  // en comas y puntos la boca se cierra un momento, como al tomar aire
+  rest(ms) {
+    if (!this.talking || reduceMotion) return;
+    clearTimeout(this.timers.talk); this.setLayer(1, this.face[1]);
+    this.timers.talk = setTimeout(() => { if (this.talking) this.startTalk(); }, ms);
   }
   stopTalk() {
-    this.body.classList.remove('talking');
-    clearInterval(this.timers.talk); this.img.setAttribute('href', MASCOT.frames[this.frame]);
+    this.body.classList.remove('talking'); this.talking = false;
+    clearTimeout(this.timers.talk); this.setLayer(1, this.face[1]);
   }
   startBlink(alive) {
     clearTimeout(this.timers.blink);
-    if (!this.has(MASCOT.blinkFrame) || reduceMotion) return;
+    if (reduceMotion) return;
+    const blink = then => {
+      if (!MASCOT.openEyes.includes(this.face[0])) return;
+      this.setLayer(0, MASCOT.blink);
+      this.timers.unblink = setTimeout(() => { this.setLayer(0, this.face[0]); if (then) this.timers.unblink = setTimeout(then, 140); }, 120);
+    };
     const go = () => {
       if (!alive()) return;
-      if (!this.body.classList.contains('talking') && this.frame !== MASCOT.blinkFrame) {
-        this.img.setAttribute('href', MASCOT.frames[MASCOT.blinkFrame]);
-        setTimeout(() => this.img.setAttribute('href', MASCOT.frames[this.frame]), 130);
-      }
-      this.timers.blink = setTimeout(go, 2500 + Math.random() * 3500);
+      blink(Math.random() < 0.18 ? () => blink() : null); // a veces parpadea dos veces seguidas
+      this.timers.blink = setTimeout(go, 2600 + Math.random() * 3600);
     };
-    this.timers.blink = setTimeout(go, 1800);
+    this.timers.blink = setTimeout(go, 1400 + Math.random() * 1200);
   }
-  stopBlink() { clearTimeout(this.timers.blink); }
+  stopBlink() { clearTimeout(this.timers.blink); clearTimeout(this.timers.unblink); this.setLayer(0, this.face[0]); }
 }
 // Escribe letra por letra con una vocecita por letra, como en los juegos de rol. Cada globo tarda 2.6 s como máximo:
 // los textos largos van más rápido. El globo ya tiene su tamaño final desde el principio, así no "brinca".
@@ -3331,6 +3378,7 @@ class Typer {
       if (i >= chars.length) return this.finish();
       const c = chars[i++]; shown.textContent = chars.slice(0, i).join('');
       if (/[A-Za-zÁÉÍÓÚÜÑáéíóúüñ0-9]/.test(c)) { const now = performance.now(); if (now - lastSnd > 18) { lastSnd = now; Sound.play('voice'); } }
+      else if (fig && (pause[c] || 1) >= 2.5 && i < chars.length) fig.rest(step * pause[c] + 40);
       this.t = setTimeout(tick, step * (pause[c] || 1));
     };
     tick();
@@ -3347,7 +3395,6 @@ const Mascot = {
   el: null, mode: null, shown: false, lastAt: 0, lastIdle: Date.now(), lastPuzzle: 0, timers: {}, ty: new Typer(),
   get typing() { return this.ty.cur; },
   enabled() { return S.settings.mascot !== false; },
-  has(f) { return !!(f && MASCOT.frames[f]); },
   mount() {
     if (this.el) return;
     this.f = new KarenFig(MV);
@@ -3359,7 +3406,6 @@ const Mascot = {
     this.bub = h('div', { class: 'm-bubble speech', role: 'status', 'aria-live': 'polite', onclick: () => (this.ty.cur ? this.finishType() : this.hide()) });
     this.el = h('div', { class: 'mascot' }, this.fig, this.bub);
     document.body.append(this.el);
-    for (const src of Object.values(MASCOT.frames)) { const im = new Image(); im.src = src; }
     window.addEventListener('resize', () => { if (this.shown) this.layout(this.mode); });
   },
   // tamaño y posición: 'tour' grande, 'tip' mediana, 'play' chica (para no tapar el tablero)

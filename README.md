@@ -40,7 +40,7 @@
 - **Defensa:** puzzles donde primero descubres qué amenaza tu rival y luego te defiendes.
 - **Reto diario:** cinco puzzles iguales para todos cada día, con resultado para compartir.
 - **Revisión de partidas:** trae tus partidas de Chess.com o Lichess, Stockfish califica cada jugada como lo hace Chess.com y tus errores se vuelven puzzles.
-- **Karen, la mascota:** da el tutorial, enseña en la Escuela y te aconseja de vez en cuando, con cientos de frases distintas; cambia de ánimo y de accesorios según lo que dice.
+- **Karen, la mascota:** da el tutorial, enseña en la Escuela y te aconseja de vez en cuando, con cientos de frases distintas. Pone cara según lo que dice (feliz, pensando, sorprendida, preocupada, guiñando el ojo, dormida…), parpadea, mueve la boca al hablar y cambia de accesorios.
 - **Detalles:** música tranquila en los menús y lo-fi para estudiar en la Escuela, foto de perfil, varios perfiles en la misma computadora y cuentas opcionales para sincronizar entre dispositivos.
 
 ## Cómo está hecho

@@ -1,6 +1,7 @@
 Karen, la mascota de De Peón a Rey
 
 Personaje e ilustración de Karen.
+base.png es su dibujo original; las expresiones (ojos-*.png y boca-*.png) se hicieron a partir de él.
 
 El dibujo del personaje Karen (los archivos de esta carpeta, sus variantes y las capturas de pantalla
 donde aparece) NO forma parte de la licencia GPLv3 del código de este proyecto.
