@@ -160,8 +160,9 @@ function schModal(title, text, buttons) {
 // tarjeta del mapa para quien empieza desde cero
 function schoolCta() {
   const rec = schRecommended(), fig = new KarenFig(KV);
-  fig.pose({ mood: 'point', emote: 'idea' });
-  return h('div', { class: 'school-cta' },
+  // señala al botón para empezar (cuando la tarjeta ya está en la página)
+  fig.pointAt = () => card.querySelector('.btn.primary');
+  const card = h('div', { class: 'school-cta' },
     h('div', { class: 'kf' }, fig.body),
     h('div', { class: 'cta-txt' },
       h('h3', null, 'Primero, lo básico'),
@@ -169,6 +170,9 @@ function schoolCta() {
       h('div', { class: 'row' },
         h('button', { class: 'btn primary small', onclick: () => (rec ? schOpen(rec.l.id) : setTab('school')) }, rec && lessonDone(SCHOOL.blocks[0].lessons[0].id) ? 'Seguir aprendiendo' : 'Empezar a aprender'),
         h('button', { class: 'linkbtn', onclick: () => { schState().skip = true; save(); renderMap(); toast('Listo: los mundos de táctica quedaron abiertos.'); } }, 'Ya sé jugar'))));
+  fig.pose({ mood: 'idle' });
+  requestAnimationFrame(() => requestAnimationFrame(() => { if (card.isConnected) fig.pose({ mood: 'point', emote: 'idea' }); }));
+  return card;
 }
 // tarjeta en Progreso
 function schoolProgressCard() {
@@ -206,6 +210,7 @@ function schOpen(id) {
       acts));
   Object.assign(LS, { p, bub, prog, host, panel, info, acts });
   LS.board = new Board(host);
+  LS.fig.pointAt = () => (LS && LS.host && !LS.host.hidden ? LS.board.wrap : null); // al explicar, señala al tablero
   if (LS.side === 'b') LS.board.flip('b');
   currentTab = 'school';
   for (const t of $$('.tab')) t.setAttribute('aria-selected', t.dataset.tab === 'school' ? 'true' : 'false');

@@ -477,7 +477,7 @@ class Engine {
   }
 }
 const engine = new Engine();
-const APP_VERSION = '2.3';
+const APP_VERSION = '2.4';
 
 // ---------------------------------------------------------------- sonido y celebraciones
 // Sonidos sintetizados con Web Audio: no hay archivos que descargar y funcionan sin conexión.
@@ -837,14 +837,16 @@ const Music = {
 // al hablar sin perder la expresión. Cada capa es un PNG transparente del mismo tamaño que base.png
 // (assets/mascota/ojos-*.png y boca-*.png); null en una cara quiere decir "como en el dibujo original".
 //
-// Los brazos también se mueven: cuerpo.png es Karen sin antebrazos y cada antebrazo (con su mano) es otra capa
-// que gira en el codo, con una transición de CSS. Con los brazos abajo se ve igual que el dibujo original
-// (base.png, del que salen todas las capas). Las capas de brazo tienen arms.pad px extra a cada lado, porque
-// los dedos pueden salir del dibujo original.
+// Los brazos se mueven como brazos de verdad: la manga y la parte de arriba del brazo giran en el hombro y el
+// antebrazo con su mano gira en el codo (cuerpo.png es Karen sin mangas ni brazos). Cada gesto usa la mano que
+// le toca (puño, índice, ✌, palma). Con los brazos abajo se ve igual que el dibujo original (base.png, del que
+// salen todas las capas). Las capas de brazo tienen arms.pad px extra a cada lado, porque los dedos pueden
+// salirse del dibujo original.
 const MASCOT = {
   name: 'Karen',
   w: 420, h: 1102, // tamaño del dibujo base en sus unidades (pixeles del PNG)
   body: 'mascota/cuerpo.png',
+  glasses: 'mascota/lentes.png',
   eyes: ['cerrados', 'feliz', 'guino', 'sorprendida', 'pensando', 'preocupada'],
   mouths: ['sonrisa', 'abierta', 'grande', 'o', 'dormida', 'hmm', 'ondulada', 'habla'],
   faces: { // ánimo: [ojos, boca]
@@ -856,30 +858,38 @@ const MASCOT = {
   openEyes: [null, 'sorprendida', 'pensando', 'preocupada'], // las que pueden parpadear
   arms: {
     pad: 100,
-    pivot: { izq: [74, 440], der: [285, 444] }, // codos, en unidades del dibujo
-    hands: { izq: { puno: 'brazo-izq', paz: 'brazo-izq-paz' }, der: { puno: 'brazo-der', indice: 'brazo-der-indice' } },
+    shoulder: { izq: [96, 292], der: [262, 292] },  // en unidades del dibujo
+    elbow: { izq: [75, 438], der: [277, 440] },
+    elbowR: { izq: 19.5, der: 17.5 },               // mitad del ancho del brazo en el codo
+    axis: { izq: 100, der: 77 },                    // dirección del antebrazo colgando (0 = derecha, 90 = abajo)
+    hands: {
+      izq: { puno: 'brazo-izq', paz: 'brazo-izq-paz', palma: 'brazo-izq-palma' },
+      der: { puno: 'brazo-der', indice: 'brazo-der-indice', palma: 'brazo-der-palma' },
+    },
+    // el brazo derecho (de la pantalla) queda medio escondido detrás del torso, como en el dibujo
+    front: { izq: true, der: false },
   },
-  // Gesto de cada ánimo: { lado: [ángulo del antebrazo, mano] }. Ángulo en grados, + = como las manecillas del
-  // reloj (izq: + sube hacia afuera; der: − sube hacia afuera). El lado que no aparece se queda colgando.
+  // Gesto de cada ánimo: { lado: [giro en el hombro, giro en el codo, mano] }, en grados (+ = como las
+  // manecillas del reloj). El lado que no aparece se queda colgando. "Explica" (point) se calcula aparte para
+  // que el dedo apunte hacia lo que Karen está explicando.
   poses: {
-    point: { der: [-95, 'indice'] },          // señala hacia el globo o el tablero
-    happy: { izq: [145] },                    // puño arriba
-    cheer: { izq: [155], der: [-155] },       // los dos puños arriba
-    wave: { izq: [160, 'paz'] },              // ✌ junto a la cara (con guiño), y la mano se mueve
-    think: { izq: [-80], der: [165] },        // un brazo cruzado y el puño en el pecho
-    surprise: { izq: [34], der: [-34] },      // brazos hacia afuera
-    worry: { izq: [-95], der: [95] },         // manos juntas en el pecho, nerviosa
-    angry: { izq: [-14], der: [14] },         // puños apretados
+    happy: { izq: [28, 140] },                                  // puño arriba
+    cheer: { izq: [30, 135], der: [-30, -135] },                // los dos puños arriba
+    wave: { izq: [22, 150, 'paz'] },                            // ✌ junto a la cara (con guiño)
+    think: { izq: [35, -100] },                                 // la mano en la cadera, mirando hacia arriba
+    surprise: { izq: [28, 115, 'palma'], der: [-28, -115, 'palma'] }, // "¡¿eh?!": las palmas arriba
+    worry: { izq: [-4, -152], der: [4, 155], front: { der: true } },  // las manos juntas en el pecho
+    angry: { izq: [8, -6], der: [-8, 6] },                      // puños apretados
   },
-  // Movimiento corto que hace cada brazo al llegar a la pose (una clase de CSS en el antebrazo): saluda, insiste
-  // al señalar, sacude el puño al festejar y mueve las manos inquieta cuando está preocupada.
+  lupa: [24, 152],   // brazo izquierdo con la lupa junto a la cara
+  // Movimiento corto que hace el antebrazo al llegar a la pose: saluda, insiste al señalar, sacude el puño al
+  // festejar y mueve las manos inquieta cuando está preocupada.
   anims: { wave: { izq: 'waving' }, point: { der: 'nudge' }, happy: { izq: 'pump' }, cheer: { izq: 'pump', der: 'pump-r' }, worry: { izq: 'fidget', der: 'fidget-r' } },
-  lupa: 170, // ángulo del brazo izquierdo cuando sostiene la lupa: junto a la cara, sin salirse de la pantalla
   src: (kind, name) => `mascota/${kind}-${name}.png`,
   file: name => `mascota/${name}.png`,
   all() {
-    const hands = Object.values(this.arms.hands).flatMap(h => Object.values(h)).map(this.file);
-    return [this.body, ...hands, this.file('codo-izq'), this.file('codo-der'),
+    const arms = Object.values(this.arms.hands).flatMap(h => Object.values(h));
+    return [this.body, this.glasses, ...['manga-izq', 'manga-der', ...arms].map(this.file),
       ...this.eyes.map(n => this.src('ojos', n)), ...this.mouths.map(n => this.src('boca', n))];
   },
 };
@@ -892,6 +902,7 @@ function preloadMascot() {
 const MV = { x: -90, y: -210, w: 620, h: 1312 }; // lienzo con espacio para reacciones arriba y a los lados
 const KHEAD = { x: 30, y: -6, w: 310, h: 310 };   // solo la cara, para el circulito junto al tablero
 const INK = '#1b1424', RED = '#e3141b';
+const ART_INK = '#010000', SKIN = '#fefefe'; // tinta y piel del dibujo de Karen
 const star4 = (x, y, r, fill, d = 0) => `<path class="tw" style="animation-delay:${d}s" d="M${x} ${y - r}Q${x} ${y} ${x + r} ${y}Q${x} ${y} ${x} ${y + r}Q${x} ${y} ${x - r} ${y}Q${x} ${y} ${x} ${y - r}Z" fill="${fill}" stroke="${INK}" stroke-width="6" stroke-linejoin="round"/>`;
 const zpath = (x, y, w) => `<path d="M${x} ${y}h${w}l${-w} ${w}h${w}" fill="none" stroke="${INK}" stroke-width="${Math.max(7, w / 5)}" stroke-linecap="round" stroke-linejoin="round"/>`;
 const note = (x, y, fill) => `<g><ellipse cx="${x}" cy="${y}" rx="17" ry="12" transform="rotate(-20 ${x} ${y})" fill="${fill}" stroke="${INK}" stroke-width="5"/><path d="M${x + 14} ${y - 4}V${y - 70}q18 10 26 30" fill="none" stroke="${INK}" stroke-width="7" stroke-linecap="round"/></g>`;
@@ -909,7 +920,6 @@ const EMOTES = { // todas del lado izquierdo y arriba de la cabeza: a la derecha
 };
 const PROPS = {
   crown: `<g class="prop-drop"><g transform="translate(180 18) rotate(-9)"><path d="M-70 0l-8-66 40 34 38-82 38 82 40-34-8 66z" fill="${RED}" stroke="${INK}" stroke-width="8" stroke-linejoin="round"/><rect x="-72" y="-8" width="144" height="20" rx="4" fill="${INK}"/><circle cx="-36" cy="2" r="5" fill="#fff"/><circle cx="0" cy="2" r="5" fill="#fff"/><circle cx="36" cy="2" r="5" fill="#fff"/><circle cx="-78" cy="-66" r="10" fill="#fff" stroke="${INK}" stroke-width="5"/><circle cx="0" cy="-82" r="10" fill="#fff" stroke="${INK}" stroke-width="5"/><circle cx="78" cy="-66" r="10" fill="#fff" stroke="${INK}" stroke-width="5"/></g></g>`,
-  glasses: `<g class="prop-pop"><g fill="rgba(255,255,255,.18)" stroke="${INK}" stroke-width="7"><circle cx="154" cy="116" r="27"/><circle cx="210" cy="123" r="27"/></g><path d="M180 116q3-6 6 2" fill="none" stroke="${INK}" stroke-width="6"/><path d="M128 110l-26-8M236 120l26-6" stroke="${INK}" stroke-width="6" stroke-linecap="round"/><path d="M140 104q8-8 18-6M196 112q8-8 18-6" fill="none" stroke="#fff" stroke-width="5" stroke-linecap="round"/></g>`,
   partyhat: `<g class="prop-drop"><g transform="translate(196 14) rotate(16)"><path d="M-50 0L0 -128 50 0z" fill="#fff" stroke="${INK}" stroke-width="8" stroke-linejoin="round"/><path d="M-30 -52L18 -36M-16 -88L10 -80M-42 -20L36 -2" stroke="${RED}" stroke-width="12" stroke-linecap="round"/><path d="M-52 0q52 18 104 0" fill="none" stroke="${INK}" stroke-width="8" stroke-linecap="round"/><circle cx="0" cy="-132" r="15" fill="${RED}" stroke="${INK}" stroke-width="6"/></g></g>`,
   nightcap: `<g class="prop-drop"><path d="M92 50C96 -30 210 -64 268 -6c30 30 50 74 74 120l-34 6c-16-40-30-62-46-74l-6 30C200 34 140 38 92 50z" fill="${RED}" stroke="${INK}" stroke-width="8" stroke-linejoin="round"/><path d="M90 46q90-34 176-10l2 26q-90-22-176 10z" fill="#fff" stroke="${INK}" stroke-width="7" stroke-linejoin="round"/><circle cx="330" cy="126" r="22" fill="#fff" stroke="${INK}" stroke-width="7"/></g>`,
 };
@@ -944,29 +954,45 @@ class KarenFig {
     preloadMascot();
     this.timers = {}; this.mood = 'idle'; this.face = MASCOT.faces.idle; this.shown = [null, null]; this.talking = false;
     this.svg = svgEl('svg', { viewBox: `${vb.x} ${vb.y} ${vb.w} ${vb.h}`, preserveAspectRatio: 'xMidYMin meet', class: 'm-svg', 'aria-hidden': 'true' });
-    const layer = () => svgEl('image', { x: 0, y: 0, width: MASCOT.w, height: MASCOT.h, display: 'none' });
-    // cuerpo sin antebrazos + un antebrazo por lado que gira en el codo
-    this.rig = svgEl('g', { class: 'm-rig' });
-    this.rig.append(svgEl('image', { href: MASCOT.body, x: 0, y: 0, width: MASCOT.w, height: MASCOT.h }));
-    this.arm = {};
-    const pad = MASCOT.arms.pad, wide = { x: -pad, y: 0, width: MASCOT.w + 2 * pad, height: MASCOT.h };
-    for (const side of ['izq', 'der']) {
-      const [px, py] = MASCOT.arms.pivot[side];
-      const outer = svgEl('g', { class: 'm-arm' }), inner = svgEl('g', { class: 'm-arm-in' }), held = svgEl('g');
-      for (const g of [outer, inner]) g.style.transformOrigin = `${px}px ${py}px`;
-      const file = MASCOT.arms.hands[side].puno;
-      const img = svgEl('image', Object.assign({ href: MASCOT.file(file) }, wide));
-      const codo = svgEl('image', Object.assign({ href: MASCOT.file('codo-' + side), class: 'm-codo' }, wide));
-      inner.append(held, img, codo); outer.append(inner); this.rig.append(outer);
-      this.arm[side] = { outer, inner, img, held, file, ang: 0 };
-    }
+    const full = { x: 0, y: 0, width: MASCOT.w, height: MASCOT.h };
+    const layer = () => svgEl('image', Object.assign({ display: 'none' }, full));
+    // brazos detrás del cuerpo · cuerpo · cara · lentes · brazos delante del cuerpo
+    this.back = svgEl('g'); this.front = svgEl('g');
     this.eyes = layer(); this.mouth = layer();
+    this.lentes = svgEl('image', Object.assign({ href: MASCOT.glasses, class: 'm-lentes', display: 'none' }, full));
+    this.arm = {};
+    for (const side of ['izq', 'der']) this.arm[side] = this.buildArm(side);
     this.props = svgEl('g', { class: 'm-props' }); this.emote = svgEl('g', { class: 'm-emote' });
-    this.svg.append(this.rig, this.eyes, this.mouth, this.props, this.emote);
+    this.svg.append(this.back, svgEl('image', Object.assign({ href: MASCOT.body }, full)), this.eyes, this.mouth, this.lentes, this.front, this.props, this.emote);
+    for (const side in this.arm) (MASCOT.arms.front[side] ? this.front : this.back).append(this.arm[side].el);
     this.body = h('div', { class: 'm-body' }); this.body.append(this.svg);
     // parpadea sola mientras esté en la página (la mascota flotante lo controla ella misma al mostrarse)
     const born = Date.now();
     this.startBlink(() => this.body.isConnected || Date.now() - born < 4000);
+  }
+  // Un brazo: la manga (con la parte de arriba del brazo) gira en el hombro y lleva dentro al antebrazo, que
+  // gira en el codo. En el codo hay dos medias lunas: una con contorno al final del brazo de arriba (la punta
+  // del codo cuando se dobla) y una blanca al principio del antebrazo, que tapa la unión.
+  buildArm(side) {
+    const A = MASCOT.arms, [sx, sy] = A.shoulder[side], [ex, ey] = A.elbow[side], r = A.elbowR[side], ax = A.axis[side];
+    const wide = { x: -A.pad, y: 0, width: MASCOT.w + 2 * A.pad, height: MASCOT.h };
+    const half = (rad, deg, arc) => {
+      const a0 = (deg - 90) * Math.PI / 180, a1 = (deg + 90) * Math.PI / 180, f = n => n.toFixed(2);
+      const p0 = [ex + rad * Math.cos(a0), ey + rad * Math.sin(a0)], p1 = [ex + rad * Math.cos(a1), ey + rad * Math.sin(a1)];
+      return `M${f(p0[0])} ${f(p0[1])}A${rad} ${rad} 0 0 1 ${f(p1[0])} ${f(p1[1])}` + (arc ? '' : 'Z');
+    };
+    const el = svgEl('g', { class: 'm-arm' }), up = svgEl('g', { class: 'm-up' }), fore = svgEl('g', { class: 'm-fore' }), foreIn = svgEl('g', { class: 'm-fore-in' });
+    up.style.transformOrigin = `${sx}px ${sy}px`;
+    for (const g of [fore, foreIn]) g.style.transformOrigin = `${ex}px ${ey}px`;
+    const file = A.hands[side].puno;
+    const img = svgEl('image', Object.assign({ href: MASCOT.file(file) }, wide)), held = svgEl('g');
+    foreIn.append(svgEl('path', { class: 'm-cap', d: half(r - 1.2, ax + 180), fill: SKIN }), img, held);
+    fore.append(foreIn);
+    up.append(svgEl('image', Object.assign({ href: MASCOT.file('manga-' + side) }, wide)),
+      svgEl('path', { class: 'm-cap', d: half(r, ax), fill: SKIN }),
+      svgEl('path', { class: 'm-cap', d: half(r + 1.7, ax, true), fill: 'none', stroke: ART_INK, 'stroke-width': 3.4 }), fore);
+    el.append(up);
+    return { el, up, fore, foreIn, img, held, file, front: !!A.front[side] };
   }
   // pone una capa de la cara; si el nombre es null se ve la del dibujo original
   setLayer(i, name) {
@@ -976,40 +1002,83 @@ class KarenFig {
     if (!name) { el.setAttribute('display', 'none'); return; }
     el.setAttribute('href', MASCOT.src(i ? 'boca' : 'ojos', name)); el.removeAttribute('display');
   }
-  pose({ mood = 'idle', prop = null, emote = null } = {}, bigEmote = false) {
+  pose({ mood = 'idle', prop = null, emote = null, at = null } = {}, bigEmote = false) {
     this.mood = mood; this.face = MASCOT.faces[mood] || MASCOT.faces.idle;
     clearTimeout(this.timers.unblink);
     this.setLayer(0, this.face[0]);
     if (!this.talking) this.setLayer(1, this.face[1]); // si está hablando, la boca nueva entra en el siguiente movimiento
     this.body.removeAttribute('data-mood'); void this.body.offsetWidth; this.body.setAttribute('data-mood', mood);
     const props = [].concat(prop || []);
-    this.setArms(mood, props.includes('magnifier'));
-    this.props.innerHTML = props.map(p => (PROPS[p] ? (p === 'glasses' ? PROPS[p] : halo(PROPS[p])) : '')).join('');
+    this.setArms(mood, props.includes('magnifier'), at);
+    const lentes = props.includes('glasses');
+    if (lentes !== !this.lentes.hasAttribute('display')) {
+      if (lentes) { this.lentes.removeAttribute('display'); this.lentes.classList.remove('pop'); void this.lentes.getBoundingClientRect(); this.lentes.classList.add('pop'); }
+      else this.lentes.setAttribute('display', 'none');
+    }
+    this.props.innerHTML = props.map(p => (PROPS[p] ? halo(PROPS[p]) : '')).join('');
     this.emote.innerHTML = emote && EMOTES[emote] ? halo(EMOTES[emote]) : '';
     // en pantallas chicas las reacciones se dibujan un poco más grandes para que se lean
     this.emote.setAttribute('transform', bigEmote ? 'translate(170 0) scale(1.3) translate(-170 0)' : '');
   }
-  // Gestos con los brazos: cada antebrazo gira en su codo y la transición de CSS lo mueve suave (con un rebotito).
-  // La mano cambia al empezar el movimiento (puño, ✌, dedo que señala) y la lupa, si la trae, va en la mano.
-  setArms(mood, lupa) {
-    const P = Object.assign({}, MASCOT.poses[mood]);
-    if (lupa) P.izq = [MASCOT.lupa];
-    for (const side in this.arm) {
-      const [ang = 0, hand = 'puno'] = P[side] || [], A = this.arm[side];
-      const file = MASCOT.arms.hands[side][hand] || MASCOT.arms.hands[side].puno;
-      A.outer.style.transform = ang ? `rotate(${ang}deg)` : '';
-      A.outer.classList.toggle('bent', !!ang);
-      if (A.file !== file) { A.file = file; A.img.setAttribute('href', MASCOT.file(file)); }
+  // Dónde queda en la pantalla un punto del dibujo. La mascota flotante lo cambia por su posición final (así no
+  // cuenta la animación con la que entra desde abajo).
+  toScreen(x, y) {
+    const m = this.svg.getScreenCTM && this.svg.getScreenCTM();
+    if (!m || !this.svg.isConnected) return null;
+    const p = new DOMPoint(x, y).matrixTransform(m);
+    return { x: p.x, y: p.y };
+  }
+  // "Explica": el brazo derecho se levanta y el índice apunta hacia lo que Karen está explicando (lo resaltado del
+  // tutorial, el tablero, un botón…). Nunca apunta recto hacia arriba: entre 38° arriba y 38° abajo de la
+  // horizontal. Sin nada a qué señalar, apunta hacia el globo de texto, que está arriba a la derecha.
+  pointPose(at) {
+    let deg = -24;
+    const target = typeof at === 'function' ? at() : at || (this.pointAt && this.pointAt());
+    const S = target && this.toScreen(...MASCOT.arms.shoulder.der);
+    if (S) {
+      const r = target.getBoundingClientRect ? target.getBoundingClientRect() : { left: target.x, top: target.y, width: 0, height: 0 };
+      const tx = r.left + r.width / 2, ty = r.top + r.height / 2;
+      if (r.width + r.height > 0 || target.x != null) {
+        if (tx > S.x + 8) deg = Math.atan2(ty - S.y, tx - S.x) * 180 / Math.PI;
+        else if (ty > S.y) deg = 38;
+      }
     }
-    const L = this.arm.izq;
-    L.held.innerHTML = lupa ? halo(HAND_LUPA) : '';
+    deg = clamp(deg, -38, 38);
+    const a = -30 + Math.max(0, deg) * 0.3, b = deg - MASCOT.arms.axis.der - a;
+    return { der: [Math.round(a), Math.round(b), 'indice'] };
+  }
+  // Gestos con los brazos: cada parte gira en su articulación y la transición de CSS lo mueve suave (con un
+  // rebotito). La mano cambia al empezar el movimiento y la lupa, si la trae, va en la mano izquierda.
+  setArms(mood, lupa, at) {
+    const P = Object.assign({}, mood === 'point' ? this.pointPose(at) : MASCOT.poses[mood]);
+    if (lupa) P.izq = MASCOT.lupa;
+    for (const side in this.arm) {
+      const [a = 0, b = 0, hand = 'puno'] = P[side] || [], A = this.arm[side];
+      const file = MASCOT.arms.hands[side][hand] || MASCOT.arms.hands[side].puno;
+      A.up.style.transform = a ? `rotate(${a}deg)` : '';
+      A.fore.style.transform = b ? `rotate(${b}deg)` : '';
+      A.el.classList.toggle('bent', !!b);
+      if (A.file !== file) { A.file = file; A.img.setAttribute('href', MASCOT.file(file)); }
+      const front = P.front && P.front[side] != null ? P.front[side] : MASCOT.arms.front[side];
+      this.layerArm(side, front);
+    }
+    this.arm.izq.held.innerHTML = lupa ? halo(HAND_LUPA) : '';
     const anims = MASCOT.anims[mood] || {};
     for (const side in this.arm) {
       const A = this.arm[side], cls = reduceMotion || (lupa && side === 'izq') ? null : anims[side];
-      if (A.anim) A.inner.classList.remove(A.anim);
+      if (A.anim) A.foreIn.classList.remove(A.anim);
       A.anim = cls;
-      if (cls) { void A.inner.getBoundingClientRect(); A.inner.classList.add(cls); }
+      if (cls) { void A.foreIn.getBoundingClientRect(); A.foreIn.classList.add(cls); }
     }
+  }
+  // Pasa un brazo delante o detrás del cuerpo. Hacia delante, cuando ya empezó a moverse; hacia atrás, cuando ya
+  // terminó de bajar: así nunca se ve brincar por encima de la camisa.
+  layerArm(side, front) {
+    const A = this.arm[side], key = 'layer-' + side;
+    clearTimeout(this.timers[key]);
+    if (A.front === front) return;
+    const go = () => { A.front = front; (front ? this.front : this.back).append(A.el); };
+    if (reduceMotion) go(); else this.timers[key] = setTimeout(go, front ? 140 : 560);
   }
   // Al hablar la boca se abre y se cierra a un ritmo un poco irregular, como al decir sílabas.
   // Con movimiento reducido solo se queda abierta mientras escribe.
@@ -1091,6 +1160,13 @@ const Mascot = {
   mount() {
     if (this.el) return;
     this.f = new KarenFig(MV);
+    // para señalar: dónde queda un punto del dibujo cuando la mascota ya está en su lugar (sin la animación de entrada)
+    this.f.toScreen = (x, y) => {
+      const st = this.fig.style, w = parseFloat(st.width), hg = parseFloat(st.height);
+      if (!w || !hg) return null;
+      const top = innerHeight - parseFloat(st.bottom) - hg;
+      return { x: parseFloat(st.left) + (x - MV.x) * w / MV.w, y: top + (y - MV.y) * hg / MV.h };
+    };
     const hit = svgEl('rect', { class: 'm-hit', x: 30, y: 0, width: 300, height: 760, fill: 'transparent' });
     hit.addEventListener('click', () => this.tap());
     this.f.svg.append(hit);
@@ -3111,7 +3187,7 @@ function tourGo(i) {
   // lo señalado queda en la parte de arriba; abajo están la mascota y su globo
   if (el && !st0.fixed) { const r = el.getBoundingClientRect(); window.scrollTo(0, window.scrollY + r.top - Math.max(76, innerHeight * 0.14)); }
   renderTourBubble();
-  if (tour.i > 0 || Mascot.shown) Mascot.pose(st0);
+  if (tour.i > 0 || Mascot.shown) Mascot.pose(Object.assign({ at: st0.sel ? $(st0.sel) : null }, st0));
   requestAnimationFrame(() => requestAnimationFrame(() => {
     placeTour();
     // pantallas bajitas: si el globo alcanza lo señalado, se sube un poco la página

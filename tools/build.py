@@ -286,6 +286,12 @@ def main(argv):
             if f == "firebase-config.js" and os.path.exists(dst):
                 continue
             shutil.copy(os.path.join(base, f), dst)
+    # dibujos de la mascota que ya no están en assets/ (capas viejas): fuera del sitio, para no publicarlos
+    keep = set(os.listdir(os.path.join(ROOT, "assets", "mascota")))
+    for folder in (os.path.join(DIST, "site", "mascota"), os.path.join(docs, "mascota")):
+        for f in os.listdir(folder):
+            if f not in keep:
+                os.remove(os.path.join(folder, f))
     print("listo: docs/index.html,", len(site) // 1024, "KB")
 
 
