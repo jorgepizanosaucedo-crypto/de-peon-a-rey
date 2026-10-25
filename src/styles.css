@@ -25,6 +25,7 @@
   --gold-edge: #8f6412;
   --sq-light: #d6e8c8;
   --sq-dark: #8a6fb4;
+  --coord-lt: #3e2878; --coord-dk: #ffffff;
   --good: #2b8657;
   --bad: #c4433a;
   --warn: #b97c12;
@@ -56,7 +57,7 @@
     --bg: #141020; --surface: #1d1730; --surface-2: #282042; --ink: #ede9f6; --muted: #a59dbe; --line: #342a50;
     --violet: #6f54bb; --violet-edge: #46328a; --violet-soft: #2c2350; --violet-ink: #c3b2f6;
     --brass: #e1ac48; --brass-ink: #ecc272; --gold-edge: #9b6c16;
-    --sq-light: #bdd7ad; --sq-dark: #7a5ea6;
+    --sq-light: #bdd7ad; --sq-dark: #7a5ea6; --coord-lt: #32205f; --coord-dk: #ffffff;
     --good: #45b07e; --bad: #e46a5f; --warn: #e2a63c;
     --c-brill: #2fbfb5; --c-great: #7b97ea; --c-best: #45b07e; --c-excellent: #5fb47a; --c-good: #8aa886; --c-book: #c9a24a; --c-inacc: #e0b630; --c-mistake: #f0934a; --c-miss: #d06aa0; --c-blunder: #e85a4f; --on-cls: #141020;
     --mine: #e46a5f;
@@ -70,7 +71,7 @@
   --bg: #141020; --surface: #1d1730; --surface-2: #282042; --ink: #ede9f6; --muted: #a59dbe; --line: #342a50;
   --violet: #6f54bb; --violet-edge: #46328a; --violet-soft: #2c2350; --violet-ink: #c3b2f6;
   --brass: #e1ac48; --brass-ink: #ecc272; --gold-edge: #9b6c16;
-  --sq-light: #bdd7ad; --sq-dark: #7a5ea6;
+  --sq-light: #bdd7ad; --sq-dark: #7a5ea6; --coord-lt: #32205f; --coord-dk: #ffffff;
   --good: #45b07e; --bad: #e46a5f; --warn: #e2a63c;
   --c-brill: #2fbfb5; --c-great: #7b97ea; --c-best: #45b07e; --c-excellent: #5fb47a; --c-good: #8aa886; --c-book: #c9a24a; --c-inacc: #e0b630; --c-mistake: #f0934a; --c-miss: #d06aa0; --c-blunder: #e85a4f; --on-cls: #141020;
   --mine: #e46a5f;
@@ -188,6 +189,7 @@ label.field, div.field { display: flex; flex-direction: column; gap: 7px; font-w
 .daily-sq.big span { width: 42px; height: 42px; border-radius: 10px; animation: badgepop .3s var(--ease-spring) backwards; }
 .daily-sq.big span:nth-child(2) { animation-delay: .08s; } .daily-sq.big span:nth-child(3) { animation-delay: .16s; }
 .daily-sq.big span:nth-child(4) { animation-delay: .24s; } .daily-sq.big span:nth-child(5) { animation-delay: .32s; }
+.share-host:empty { display: none; }
 .share-box { font-family: var(--f-body); font-size: 15px; min-height: 0; }
 .share-host { display: flex; flex-direction: column; gap: 6px; text-align: left; }
 
@@ -261,11 +263,14 @@ label.field, div.field { display: flex; flex-direction: column; gap: 7px; font-w
 .board.interactive { touch-action: none; }
 .sq { position: relative; background: var(--sq-light); }
 .sq.dk { background: var(--sq-dark); }
-.sq .coord { position: absolute; font-family: var(--f-mono); font-size: 10px; font-weight: 500; line-height: 1; pointer-events: none; opacity: .85; }
-.sq .coord.f { right: 3px; bottom: 2px; }
-.sq .coord.r { left: 3px; top: 3px; }
-.sq.dk .coord { color: var(--sq-light); }
-.sq:not(.dk) .coord { color: var(--sq-dark); }
+/* coordenadas: Atkinson Hyperlegible en negritas, crecen con el tablero y van encima de las piezas.
+   Tinta violeta en las casillas claras y blanco en las oscuras (contraste ≥ 4.5:1 en claro y oscuro). */
+.board-wrap { container-type: inline-size; }
+.sq .coord { position: absolute; z-index: 3; font-family: var(--f-body); font-weight: 700; font-size: 11px; font-size: clamp(11px, 3.9cqi, 16px); line-height: 1; letter-spacing: 0; pointer-events: none; }
+.sq .coord.f { right: max(4px, 5%); bottom: max(3px, 4%); }
+.sq .coord.r { left: max(5px, 6%); top: max(4px, 5%); }
+.sq.dk .coord { color: var(--coord-dk); text-shadow: 0 1px 1.5px rgba(20, 10, 40, .35); }
+.sq:not(.dk) .coord { color: var(--coord-lt); }
 .sq.last::before, .sq.sel::before, .sq.hint::before, .sq.check::before, .sq.good::before, .sq.bad::before { content: ""; position: absolute; inset: 0; pointer-events: none; }
 .sq.last::before { background: rgba(250, 226, 110, .55); }
 .sq.dk.last::before { background: rgba(255, 232, 130, .72); }
@@ -880,3 +885,137 @@ body.in-lesson #view-lesson { padding-top: calc(10px + env(safe-area-inset-top, 
 .title-card .ls-karen { width: 100%; margin-top: 4px; }
 .title-card .btn { min-width: 200px; }
 @media (max-width: 400px) { .sc-tt h2 { font-size: 26px; } .sc-sec h2 { font-size: 27px; } .kf { width: 80px; height: 130px; } }
+
+/* ---------- modo infinito ---------- */
+/* tarjeta del mapa: los colores de todos los mundos corren detrás de un ∞ que se dibuja solo */
+.inf-card { position: relative; overflow: hidden; isolation: isolate; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 10px 14px; margin: -8px 0 28px; padding: 18px; border: 0; color: #fff; background: var(--w-mate1); box-shadow: 0 4px 0 color-mix(in srgb, var(--w-mate1) 55%, #000); }
+.inf-bg { position: absolute; top: 0; bottom: 0; left: 0; width: 200%; z-index: -3; pointer-events: none;
+  background: linear-gradient(90deg, var(--w-mate1), var(--w-fork) 12.5%, var(--w-pin) 25%, var(--w-hanging) 37.5%, var(--w-mate1) 50%, var(--w-fork) 62.5%, var(--w-pin) 75%, var(--w-hanging) 87.5%, var(--w-mate1));
+  animation: infslide 18s linear infinite; will-change: transform; }
+.inf-card::before { content: ""; position: absolute; inset: 0; z-index: -2; pointer-events: none; opacity: .1; background: conic-gradient(#fff 25%, transparent 0 50%, #fff 0 75%, transparent 0) 0 0 / 28px 28px; -webkit-mask: linear-gradient(105deg, transparent 45%, #000); mask: linear-gradient(105deg, transparent 45%, #000); }
+.inf-card::after { content: ""; position: absolute; inset: 0; z-index: -2; pointer-events: none; background: linear-gradient(90deg, rgba(18, 10, 36, .42), rgba(18, 10, 36, .08) 75%); }
+@keyframes infslide { to { transform: translateX(-50%); } }
+.inf-card .inf-svg { width: 104px; height: 56px; color: #fff; pointer-events: none; filter: drop-shadow(0 3px 0 rgba(0, 0, 0, .18)); }
+@media (max-width: 380px) { .inf-card .inf-svg { width: 76px; height: 42px; } }
+.inf-txt { min-width: 0; }
+.inf-k { font-family: var(--f-display); font-size: 15px; font-weight: 600; opacity: .9; }
+.inf-card h3 { font-size: 20px; font-weight: 800; margin: 2px 0 6px; }
+.inf-meta { margin: 0 0 12px; font-size: 14px; opacity: .95; }
+.inf-meta strong { font-weight: 800; }
+.inf-btn { background: #fff; border-color: #fff; color: #33206b; box-shadow: 0 3px 0 rgba(0, 0, 0, .28); }
+@media (hover: hover) { .inf-btn:hover { background: #f3eefc; } }
+.inf-btn:active { transform: translateY(3px); box-shadow: none; }
+.inf-card.locked { box-shadow: none; }
+.inf-card.locked .inf-bg { animation: none; filter: saturate(.12) brightness(.82); }
+.inf-card.locked .inf-svg .inf-run { animation: none; opacity: 0; }
+.inf-btn:disabled { opacity: .55; }
+/* el ∞: un trazo tenue y dos "cometas" que le dan la vuelta */
+.inf-svg { overflow: visible; }
+.inf-svg path { fill: none; stroke-linecap: round; stroke-linejoin: round; }
+.inf-svg .inf-base { stroke: currentColor; stroke-width: 2.1; opacity: .24; }
+.inf-svg .inf-run { stroke: currentColor; stroke-width: 2.5; stroke-dasharray: 18 82; opacity: .75; animation: infrun 3.6s linear infinite; }
+.inf-svg .inf-run.r2 { stroke: var(--brass); stroke-dasharray: 8 92; opacity: 1; animation-delay: -1.8s; }
+@keyframes infrun { from { stroke-dashoffset: 100; } to { stroke-dashoffset: 0; } }
+/* durante la partida: corazones, puzzles resueltos y racha */
+.inf-hearts { gap: 2px; padding: 0 9px; }
+.inf-hearts svg { width: 17px; height: 17px; }
+.inf-hearts .empty { color: var(--muted); opacity: .55; }
+.inf-hearts .lost { animation: heartlost .7s ease-in; }
+.inf-hearts .gained { animation: heartgain .6s var(--ease-spring) .45s backwards; }
+.inf-hearts.hurt .heart { animation: none; }
+.inf-hearts.hurt .heart.lost { animation: heartlost .7s ease-in; }
+@keyframes heartlost { 0% { transform: scale(1.4); color: var(--bad); opacity: 1; } 55% { transform: translateY(8px) scale(.6) rotate(-20deg); opacity: .2; } 100% { transform: none; } }
+@keyframes heartgain { from { transform: scale(0); } 60% { transform: scale(1.45); } }
+.pips.inf { position: relative; align-items: center; gap: 12px; }
+.inf-pips { display: flex; gap: 6px; }
+.pips.inf .pip { width: 28px; }
+.inf-count, .streak { display: inline-flex; align-items: center; gap: 4px; min-width: 50px; font-weight: 700; font-size: 15px; font-variant-numeric: tabular-nums; color: var(--muted); }
+.inf-count { justify-content: flex-end; color: var(--ink); }
+.inf-count svg, .streak svg { width: 17px; height: 17px; flex: none; }
+.inf-count svg { color: var(--violet-ink); }
+.inf-count.bump b, .streak.bump { animation: streakpop .4s var(--ease-spring); }
+.streak { opacity: .4; transition: opacity .2s, color .2s; }
+.streak.on { opacity: 1; color: var(--warn); }
+.streak.hot { color: var(--bad); }
+.streak.hot svg { animation: flicker .9s ease-in-out infinite; transform-origin: 50% 90%; }
+@keyframes streakpop { 40% { transform: scale(1.4); } }
+@keyframes flicker { 50% { transform: scale(1.14, 1.2) rotate(-5deg); } }
+.rec-flash { position: absolute; left: 50%; top: 0; z-index: 5; pointer-events: none; white-space: nowrap; background: var(--brass); color: #2a1d04; font-family: var(--f-display); font-weight: 800; font-size: 15px; padding: 5px 14px; border-radius: 99px; box-shadow: 0 3px 0 var(--gold-edge); animation: recflash 2.6s ease-in-out forwards; }
+@keyframes recflash { 0% { transform: translate(-50%, 0) scale(.4); opacity: 0; } 12% { transform: translate(-50%, -120%) scale(1.08); opacity: 1; } 20%, 80% { transform: translate(-50%, -120%) scale(1); opacity: 1; } 100% { transform: translate(-50%, -150%); opacity: 0; } }
+/* "¡Nivel N!" encima del tablero */
+.lvl-up { position: absolute; inset: 0; z-index: 12; display: grid; place-content: center; justify-items: center; text-align: center; gap: 6px; border-radius: 14px; pointer-events: none;
+  background: color-mix(in srgb, var(--bg) 70%, transparent); -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px); animation: viewin .2s ease-out; }
+.lvl-up .lu-k { font-weight: 700; color: var(--muted); font-size: 16px; }
+.lvl-up .lu-n { font-family: var(--f-display); font-weight: 800; font-size: clamp(42px, 15cqi, 76px); line-height: 1; letter-spacing: -.03em; color: var(--brass-ink); text-shadow: 0 3px 0 color-mix(in srgb, var(--brass) 30%, transparent); animation: stampin .5s cubic-bezier(.2, 1.5, .4, 1) both; }
+.lvl-up .lu-h { display: inline-flex; gap: 6px; align-items: center; font-weight: 800; font-size: 17px; animation: capin .3s .3s ease-out both; }
+.lvl-up .lu-h svg { width: 20px; height: 20px; }
+.lvl-up .muted-h { color: var(--muted); }
+.lvl-up.out { opacity: 0; transform: scale(1.04); transition: opacity .25s, transform .25s; }
+/* resultado */
+.inf-score { display: grid; justify-items: center; margin: 4px 0 12px; }
+.inf-score .inf-svg.big { width: 132px; height: 80px; color: var(--violet-ink); margin-bottom: -6px; }
+.inf-score .n { font-family: var(--f-display); font-weight: 800; font-size: 64px; line-height: 1; letter-spacing: -.04em; font-variant-numeric: tabular-nums; }
+.inf-score .l { color: var(--muted); font-weight: 700; }
+.inf-result.record .inf-score .n { color: var(--brass-ink); animation: pop .5s var(--ease-spring) .2s backwards; }
+@media (max-width: 360px) { .pips.inf { gap: 8px; } .pips.inf .pip { width: 22px; } .inf-count, .streak { min-width: 42px; } }
+
+/* ---------- vida: pequeños movimientos que hacen sentir la app despierta ---------- */
+/* cambiar de sección: la vista sube un poquito mientras aparece */
+.view:not([hidden]) { animation: viewrise .28s cubic-bezier(.2, .8, .2, 1); }
+@keyframes viewrise { from { opacity: 0; transform: translateY(8px); } }
+.tab[aria-selected="true"] svg { animation: tabpop .42s var(--ease-spring); }
+@keyframes tabpop { 0% { transform: scale(.8); } 55% { transform: translateY(-3px) scale(1.12); } 100% { transform: translateY(-1px); } }
+/* chips de arriba: saltito cuando sube algo */
+.chip.bump { animation: chipbump .55s var(--ease-spring); }
+.chip.bump.up { border-color: color-mix(in srgb, var(--good) 55%, var(--line)); }
+.chip.bump.down { border-color: color-mix(in srgb, var(--bad) 45%, var(--line)); }
+@keyframes chipbump { 30% { transform: scale(1.16); } 60% { transform: scale(.96); } }
+/* reto diario: el tablerito del rincón flota */
+.daily::after { animation: dailyfloat 9s ease-in-out infinite; }
+@keyframes dailyfloat { 50% { transform: rotate(26deg) translate(-6px, 6px); } }
+/* mundos: la pieza del fondo flota despacito */
+.wb-piece { animation: wbfloat 7s ease-in-out infinite; }
+@keyframes wbfloat { 50% { transform: rotate(-4deg) translateY(-7px); } }
+/* sendero: el tramo recorrido avanza hacia tu casilla */
+.trail svg.path path.walked { stroke: var(--wc); opacity: .85; animation: march 1.1s linear infinite; }
+@keyframes march { to { stroke-dashoffset: -16; } }
+/* casilla actual: un halo dorado que respira */
+.node.current .disc { animation: curglow 2.4s ease-in-out infinite; }
+@keyframes curglow { 50% { box-shadow: 0 5px 0 color-mix(in srgb, var(--wc) 62%, #000), 0 0 0 11px color-mix(in srgb, var(--brass) 12%, transparent); } }
+/* las estrellas ganadas brillan de vez en cuando, cada nivel a su tiempo */
+.node.done .stars svg.lit { animation: twinkle 6s ease-in-out infinite; animation-delay: calc(var(--i, 0) * -0.7s); }
+.node.done .stars svg.lit:nth-child(2) { animation-delay: calc(var(--i, 0) * -0.7s - .12s); }
+.node.done .stars svg.lit:nth-child(3) { animation-delay: calc(var(--i, 0) * -0.7s - .24s); }
+@keyframes twinkle { 0%, 88%, 100% { transform: none; } 93% { transform: scale(1.35) rotate(18deg); filter: drop-shadow(0 0 3px color-mix(in srgb, var(--brass) 70%, transparent)); } }
+/* casilla bloqueada: "todavía no" */
+.node .disc.nope { animation: nope .42s ease-out; }
+@keyframes nope { 20% { transform: translateX(-5px) rotate(-4deg); } 45% { transform: translateX(5px) rotate(3deg); } 70% { transform: translateX(-3px); } }
+/* aparecer al hacer scroll */
+.node.rv:not(.in) > * { opacity: 0; }
+.node.rv.in > * { animation: nodein .5s var(--ease-spring) var(--d, 0s) backwards; }
+.node.rv.in > .stars { animation-delay: calc(var(--d, 0s) + .08s); }
+@keyframes nodein { from { opacity: 0; transform: scale(.55) translateY(10px); } }
+.node.current.rv.in > .disc { animation: nodein .5s var(--ease-spring) var(--d, 0s) backwards, curglow 2.4s ease-in-out .8s infinite; }
+.node.rv.in > .disc.nope, .node .disc.nope { animation: nope .42s ease-out; }
+.world-banner.rv { transition: opacity .45s ease-out var(--d, 0s), transform .55s var(--ease-spring) var(--d, 0s); }
+.world-banner.rv:not(.in) { opacity: 0; transform: translateY(22px) scale(.98); }
+/* tablero: piezas que entran en ola y chispas al acertar */
+.pc.pc-in { animation: pcin .34s cubic-bezier(.3, 1.45, .5, 1) backwards; }
+@keyframes pcin { from { transform: translateY(-16%) scale(.55); opacity: 0; } }
+.burst { position: absolute; z-index: 6; width: 0; height: 0; pointer-events: none; }
+.burst i { position: absolute; left: -4px; top: -4px; width: 8px; height: 8px; border-radius: 50%; background: var(--brass); opacity: 0; animation: burst .62s cubic-bezier(.15, .75, .3, 1) var(--d, 0s) forwards; }
+.burst i:nth-child(3n) { background: var(--good); }
+.burst i:nth-child(3n+1) { background: #fff; box-shadow: 0 0 0 1px rgba(0, 0, 0, .12); }
+.burst.big i { left: -6px; top: -6px; width: 12px; height: 12px; border-radius: 0; clip-path: polygon(50% 0, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%); animation-duration: .8s; }
+@keyframes burst { 0% { transform: rotate(var(--a)) translateX(0) scale(.3); opacity: 1; } 70% { opacity: 1; } 100% { transform: rotate(var(--a)) translateX(var(--r)) rotate(140deg) scale(1); opacity: 0; } }
+.inf-prog { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 14px; align-items: center; margin-top: 12px; }
+.inf-prog .inf-svg { width: 62px; height: 34px; color: var(--violet-ink); }
+/* progreso: las barras se llenan al entrar; reto diario: los cuadritos hacen una ola */
+#view-progress .fill { transform-origin: left center; animation: growx .9s cubic-bezier(.2, .8, .2, 1) .15s backwards; }
+#view-progress .bar-row:nth-child(2) .fill { animation-delay: .22s; } #view-progress .bar-row:nth-child(3) .fill { animation-delay: .29s; }
+#view-progress .bar-row:nth-child(4) .fill { animation-delay: .36s; } #view-progress .bar-row:nth-child(n+5) .fill { animation-delay: .43s; }
+@keyframes growx { from { transform: scaleX(0); } }
+.daily .daily-sq span { animation: sqwave .5s var(--ease-spring) backwards; }
+.daily .daily-sq span:nth-child(2) { animation-delay: .06s; } .daily .daily-sq span:nth-child(3) { animation-delay: .12s; }
+.daily .daily-sq span:nth-child(4) { animation-delay: .18s; } .daily .daily-sq span:nth-child(5) { animation-delay: .24s; }
+@keyframes sqwave { from { transform: translateY(8px) scale(.6); opacity: 0; } }

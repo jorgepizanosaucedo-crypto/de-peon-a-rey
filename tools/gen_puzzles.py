@@ -8,6 +8,7 @@ puzzle con solución única. Cada puzzle sigue el formato de la base de Lichess:
   moves = [error_rival, solución1, respuesta1, solución2, ...] en UCI
 
 Uso: python3 gen_puzzles.py SALIDA.jsonl MINUTOS SEMILLA
+     GEN_SALTAR=mate1 python3 gen_puzzles.py ...   # no buscar más mates en 1 (ya hay de sobra)
 """
 import json
 import math
@@ -24,7 +25,10 @@ import chess.engine
 ENGINE = os.environ.get("STOCKFISH") or shutil.which("stockfish") or "/usr/games/stockfish"
 VAL = {chess.PAWN: 1, chess.KNIGHT: 3, chess.BISHOP: 3, chess.ROOK: 5, chess.QUEEN: 9, chess.KING: 0}
 SCAN = chess.engine.Limit(depth=9)
+QUICK = chess.engine.Limit(depth=10)
 DEEP = chess.engine.Limit(depth=14)
+# temas que ya sobran y no vale la pena seguir buscando (variable GEN_SALTAR, p. ej. "mate1")
+SKIP = set(filter(None, os.environ.get("GEN_SALTAR", "").split(",")))
 MATE_CP = 100000
 
 
@@ -59,10 +63,10 @@ def multipv2(eng, board, limit=DEEP):
     return m1, s1, s2, best
 
 
-def unique_enough(s1, s2):
+def unique_enough(s1, s2, slack=0.0):
     if s1 >= MATE_CP - 5000:  # mate for solver
-        return s2 < MATE_CP - 5000 and (s2 < 600 or wc(s1) - wc(s2) > 0.2)
-    return s1 >= 250 and wc(s1) - wc(s2) >= 0.45
+        return s2 < MATE_CP - 5000 and (s2 < 600 or wc(s1) - wc(s2) > 0.2 - slack)
+    return s1 >= 250 and wc(s1) - wc(s2) >= 0.45 - slack
 
 
 def build_solution(eng, board, pre_blunder):
@@ -71,6 +75,10 @@ def build_solution(eng, board, pre_blunder):
     recapture does not count as winning material."""
     solver = board.turn
     start_bal = balance(pre_blunder, solver)
+    # filtro rápido: si a poca profundidad ya hay dos jugadas buenas, no vale la pena el análisis profundo
+    _, q1, q2, _ = multipv2(eng, board, QUICK)
+    if not unique_enough(q1, q2, slack=0.12):
+        return None
     b = board.copy()
     moves = []
     for step in range(4):
@@ -268,6 +276,9 @@ def play_and_mine(player, ana, rng, out, stats):
         if prev_eval is not None and ply >= opening_plies:
             before_solver = -prev_eval
             if ev >= 280 and before_solver <= 120 and abs(ev) < MATE_CP or ev >= MATE_CP - 5000 and before_solver < MATE_CP - 5000:
+                if "mate1" in SKIP and ev >= MATE_CP - 150:  # mate en 1: ya hay de sobra
+                    prev_eval = ev
+                    continue
                 stats["cand"] += 1
                 sol = build_solution(ana, board, chess.Board(fen_before)) if fen_before not in seen else None
                 seen.add(fen_before)

@@ -27,7 +27,14 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC = os.path.join(ROOT, "src")
 DIST = os.path.join(ROOT, "dist")
 ORDER = ["mate1", "hanging", "defense", "fork", "mate2", "pin", "discovered", "mix"]
-CAP = 240  # hasta 12 niveles con un banco de ~20 puzzles cada uno (rotan al repetir)
+CAP = 300  # hasta 20 niveles con un banco de ~15 puzzles cada uno (rotan al repetir)
+# Cada puzzle conserva su id entre versiones (el repaso y los "ya vistos" de cada persona los usan).
+# El registro guarda huella (fen + primera jugada) -> id; los puzzles nuevos reciben ids nuevos.
+IDS = os.path.join(ROOT, "data", "puzzle-ids.json")
+
+
+def huella(fen, first):
+    return hashlib.sha1((fen + "|" + first).encode("utf-8")).hexdigest()[:12]
 
 
 def world_of(themes):
@@ -100,13 +107,15 @@ def load_threats(paths, cap=CAP):
             r["pawn"] = bool(mover and mover in "pP" and r["threat"][:2] == r["last"][2:4])
             out.append(r)
     # variedad: algunas amenazas de mate y de ataque descubierto siempre entran
+    reg = registro()
+    key = lambda r: huella(r["fen"], r["last"])
     special = [r for r in out if r["mate"]][:24] + [r for r in out if r.get("disc") and not r["mate"]][:24]
     rest = [r for r in out if r not in special]
     pawns = [r for r in rest if r["pawn"]]
     others = [r for r in rest if not r["pawn"]]
     keep_pawns = int(cap * 0.3)
-    pool = others + spread(sorted(pawns, key=lambda r: r["rating"]), keep_pawns)
-    pool = special + spread(sorted(pool, key=lambda r: r["rating"]), cap - len(special))
+    pool = others + keep_spread(sorted(pawns, key=lambda r: r["rating"]), keep_pawns, reg, key)
+    pool = special + keep_spread(sorted(pool, key=lambda r: r["rating"]), cap - len(special), reg, key)
     return [(r["fen"], [r["last"], r["threat"]], r["rating"], ["defense"], r["ok"], r["mate"]) for r in pool]
 
 
@@ -118,7 +127,26 @@ def spread(items, k):
     return [items[int(i * step)] for i in range(k)]
 
 
+def registro():
+    return json.load(open(IDS, encoding="utf-8")) if os.path.exists(IDS) else {}
+
+
+def keep_spread(items, k, reg, key):
+    """Como spread, pero los puzzles que ya se publicaron antes (tienen id) se quedan siempre:
+    el repaso y los "ya vistos" de cada persona los siguen encontrando. Los nuevos llenan el resto."""
+    if len(items) <= k:
+        return items
+    old = [x for x in items if key(x) in reg]
+    if len(old) >= k:
+        return sorted(spread(old, k), key=lambda x: x[2] if isinstance(x, tuple) else x["rating"])
+    new = [x for x in items if key(x) not in reg]
+    out = old + spread(new, k - len(old))
+    return sorted(out, key=lambda x: x[2] if isinstance(x, tuple) else x["rating"])
+
+
 def build_worlds(puzzles, threats=()):
+    reg = registro()
+    key = lambda p: huella(p[0], p[1][0])
     buckets = {k: [] for k in ORDER}
     for p in puzzles:
         buckets[world_of(p[3])].append(p)
@@ -128,31 +156,42 @@ def build_worlds(puzzles, threats=()):
             continue
         b = sorted(buckets[k], key=lambda p: p[2])
         if len(b) > CAP:
-            chosen = spread(b, CAP)
+            chosen = keep_spread(b, CAP, reg, key)
             ids = {id(x) for x in chosen}
             overflow += [x for x in b if id(x) not in ids]
             b = chosen
-        if len(b) < 10:  # muy pocos para un mundo propio
+        if len(b) < 30:  # muy pocos para un mundo propio (al menos 3 niveles)
             overflow += b
             b = []
         buckets[k] = b
     mix = sorted(buckets["mix"] + [p for p in overflow if p[2] >= 900], key=lambda p: p[2])
-    buckets["mix"] = spread(mix, CAP)
+    buckets["mix"] = keep_spread(mix, CAP, reg, key)
     buckets["defense"] = sorted(threats, key=lambda p: p[2])
-    worlds, n = {}, 0
+    n = max([int(v[1:], 16) for v in reg.values()] or [0])
+    worlds = {}
     for k in ORDER:
         b = buckets[k]
-        b = b[: (len(b) // 5) * 5]
+        # múltiplo de 5 (cada intento son 5): sobran a lo más 4, y se quitan de los nuevos para no perder ninguno publicado
+        extra = len(b) % 5
+        if extra:
+            drop = [i for i in range(len(b) - 1, -1, -1) if key(b[i]) not in reg][:extra]
+            drop += [i for i in range(len(b) - 1, -1, -1) if i not in drop][: extra - len(drop)]
+            b = [x for i, x in enumerate(b) if i not in set(drop)]
         rows = []
         for item in b:
-            n += 1
             fen, moves, rating, themes = item[:4]
-            row = ["p" + format(n, "x"), fen, " ".join(moves), int(rating), " ".join(themes)]
+            h = huella(fen, moves[0])
+            if h not in reg:
+                n += 1
+                reg[h] = "p" + format(n, "x")
+            row = [reg[h], fen, " ".join(moves), int(rating), " ".join(themes)]
             if k == "defense":
                 row += [" ".join(item[4]), 1 if item[5] else 0]
             rows.append(row)
         worlds[k] = rows
     order = [k for k in ORDER if worlds[k]]
+    with open(IDS, "w", encoding="utf-8") as f:
+        json.dump(reg, f, separators=(",", ":"))
     return {"order": order, "worlds": worlds}
 
 

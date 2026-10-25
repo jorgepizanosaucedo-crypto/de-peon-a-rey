@@ -105,7 +105,8 @@ function defaultState() {
   return { v: 1, lives: MAX_LIVES, livesTs: Date.now(), levels: {}, rating: 800, ratingN: 0, ratingHist: [],
     themeStats: {}, review: [], mine: [], games: [], streak: { last: null, days: 0 }, solved: 0,
     settings: { platform: 'chesscom', user: '', depth: 16 }, lessonsOpen: {}, savedAt: 0, rankMax: 0, daily: {},
-    school: { done: {}, needBasics: false, skip: false, titles: [] } };
+    school: { done: {}, needBasics: false, skip: false, titles: [] },
+    inf: { best: 0, bestLv: 0, bestRun: 0, runs: 0, total: 0 } };
 }
 function normalizeState(d) {
   const base = defaultState();
@@ -118,6 +119,10 @@ function normalizeState(d) {
   const done = {};
   if (sc.done && typeof sc.done === 'object') for (const [k, v] of Object.entries(sc.done)) if (/^[a-z0-9-]{1,40}$/.test(k) && v >= 1) done[k] = Math.min(3, Math.round(v));
   st.school = { done, needBasics: !!sc.needBasics, skip: !!sc.skip, titles: Array.isArray(sc.titles) ? sc.titles.filter(t => typeof t === 'string').slice(0, 40) : [], last: typeof sc.last === 'string' ? sc.last : null };
+  // modo infinito: récord (puzzles y nivel), mejor racha, partidas y total resueltos
+  const inf = st.inf && typeof st.inf === 'object' ? st.inf : {};
+  const nat = (x, max) => (Number.isFinite(+x) && +x > 0 ? Math.min(max, Math.floor(+x)) : 0);
+  st.inf = { best: nat(inf.best, 1e5), bestLv: nat(inf.bestLv, 1e4), bestRun: nat(inf.bestRun, 1e5), runs: nat(inf.runs, 1e6), total: nat(inf.total, 1e7) };
   return st;
 }
 // JSON.parse que descarta claves peligrosas (__proto__, constructor, prototype) de datos guardados
@@ -227,7 +232,7 @@ const WORLD_META = {
       'Calcula la respuesta del rival antes de jugar. La mejor jugada suele ser forzante.',
       'Si nada funciona, busca qué pieza del rival está sin defensa.'] },
 };
-const MAX_LEVELS = 12, POOL_MIN = 10;
+const MAX_LEVELS = 20, POOL_MIN = 10; // hasta 20 niveles por mundo, cada uno con al menos 10 puzzles para rotar
 const LEVEL_CACHE = {};
 // Cada nivel es un banco de puzzles de dificultad parecida; cada intento toma 5 que no hayas visto.
 function levelsOf(key) {
@@ -325,6 +330,27 @@ class Board {
     pc.getBoundingClientRect();
     pc.classList.add('anim'); pc.style.transform = '';
     setTimeout(() => pc.classList.remove('anim'), 260);
+  }
+  // las piezas entran en ola desde tu lado del tablero al cargar un puzzle nuevo
+  intro() {
+    if (reduceMotion) return;
+    const sqs = [...this.el.children], pcs = [];
+    sqs.forEach((d, k) => { const pc = d.querySelector('.pc'); if (!pc) return; pc.style.animationDelay = ((7 - Math.floor(k / 8)) * 24 + (k % 8) * 7) + 'ms'; pc.classList.add('pc-in'); pcs.push(pc); });
+    clearTimeout(this._introT);
+    this._introT = setTimeout(() => pcs.forEach(pc => { pc.classList.remove('pc-in'); pc.style.animationDelay = ''; }), 640);
+  }
+  // chispas que salen de una casilla (acierto); big = puzzle resuelto
+  burst(sq, big) {
+    if (reduceMotion || !this.sqs[sq]) return;
+    const a = this.sqs[sq].getBoundingClientRect(), b = this.wrap.getBoundingClientRect();
+    if (!a.width) return;
+    const box = h('div', { class: 'burst' + (big ? ' big' : ''), 'aria-hidden': 'true', style: { left: (a.left - b.left + a.width / 2) + 'px', top: (a.top - b.top + a.height / 2) + 'px' } });
+    const n = big ? 12 : 7;
+    for (let i = 0; i < n; i++) {
+      const r = a.width * (big ? 1.05 : .72) * (0.75 + Math.random() * 0.45);
+      box.append(h('i', { style: { '--a': ((i / n) * 360 + Math.random() * 24) + 'deg', '--r': r + 'px', '--d': Math.round(Math.random() * 70) + 'ms' } }));
+    }
+    this.wrap.append(box); setTimeout(() => box.remove(), 900);
   }
   mark(sq, cls) { if (this.sqs[sq]) this.sqs[sq].classList.add(cls); }
   badge(sq, text, color) { if (!this.sqs[sq] || !text) return; this.sqs[sq].append(h('span', { class: 'sqb', style: { background: color }, 'aria-hidden': 'true' }, text)); }
@@ -477,7 +503,7 @@ class Engine {
   }
 }
 const engine = new Engine();
-const APP_VERSION = '2.6';
+const APP_VERSION = '2.7';
 
 // ---------------------------------------------------------------- sonido y celebraciones
 // Sonidos sintetizados con Web Audio: no hay archivos que descargar y funcionan sin conexión.
@@ -538,6 +564,12 @@ const Sound = {
           o.connect(f); f.connect(g); g.connect(c.destination); o.start(t); o.stop(t + 0.05); break;
         }
         case 'pop': this.tone(t, 520, 0.12, 0.05, 'sine', 990); break;
+        case 'nope': this.tone(t, 300, 0.09, 0.05, 'triangle', 240); this.tone(t + 0.08, 240, 0.12, 0.045, 'triangle', 200); break;
+        // modo infinito: perder y recuperar corazón, subir de nivel y la racha que sube de tono con cada acierto
+        case 'heartloss': this.tone(t, 523, 0.16, 0.07, 'triangle', 392); this.tone(t + 0.12, 330, 0.3, 0.07, 'triangle', 247); break;
+        case 'heartgain': this.tone(t, 659, 0.12, 0.06, 'triangle'); this.tone(t + 0.08, 988, 0.22, 0.06, 'triangle'); this.tone(t + 0.08, 1976, 0.16, 0.02, 'sine'); break;
+        case 'levelup': [523, 659, 784, 1047].forEach((f, i) => { this.tone(t + i * 0.085, f, 0.24, 0.075, 'triangle'); this.tone(t + i * 0.085, f * 2, 0.14, 0.018, 'sine'); }); this.tone(t + 0.36, 1568, 0.5, 0.05, 'sine'); break;
+        case 'combo': { const f = 880 * Math.pow(2, Math.min(n, 12) / 12); this.tone(t, f, 0.12, 0.05, 'sine'); this.tone(t + 0.06, f * 1.5, 0.2, 0.04, 'sine'); break; }
       }
     } catch (e) { /* audio no disponible */ }
   },
@@ -1238,6 +1270,9 @@ const Mascot = {
       case 'level-fail': return say(karenLine('fail'), { mood: 'worry', emote: 'sweat', gap: 0 });
       case 'no-lives': return say(karenLine('noLives'), { mood: 'sleepy', prop: 'nightcap', emote: 'zzz', gap: 0, ms: 9000 });
       case 'daily-done': return say(karenLine(d.perfect ? 'dailyPerfect' : 'daily'), { mood: 'cheer', emote: 'sparkle', prop: d.perfect ? 'partyhat' : null, gap: 0 });
+      case 'inf-level': return say(karenLine('infLevel', { lv: d.lv }), { mood: Math.random() < 0.5 ? 'happy' : 'cheer', emote: 'sparkle', gap: 0, ms: 4200 });
+      case 'inf-record': return say(karenLine('infRecord', { n: d.n }), { mood: 'cheer', prop: 'partyhat', emote: 'sparkle', gap: 0 });
+      case 'inf-end': return say(karenLine('infEnd'), { mood: d.n >= 10 ? 'happy' : 'wave', emote: d.n >= 10 ? 'heart' : 'sparkle', gap: 0 });
       case 'rank-up': return say(d.k === RANKS.length - 1 ? karenLine('rankTop') : karenLine('rankUp', { rank: RANKS[d.k].name }), { mood: 'cheer', prop: 'crown', emote: 'sparkle', gap: 0, force: this.enabled() });
       case 'analysis': return say(d.n > 1 ? karenLine('analysisSome', { n: d.n }) : d.n === 1 ? karenLine('analysisOne') : karenLine('analysisNone'),
         d.n ? { mood: 'think', prop: ['glasses', 'magnifier'], emote: 'idea', gap: 0 } : { mood: 'cheer', prop: 'glasses', emote: 'sparkle', gap: 0 });
@@ -1355,8 +1390,8 @@ function shareText(d) {
   const link = publicLink(); if (link) t += `\n${link}`;
   return t;
 }
-function shareResult(d, boxHost) {
-  const text = shareText(d);
+function shareResult(d, boxHost, given) {
+  const text = given || shareText(d);
   const showBox = () => {
     if (!boxHost) { toast('No se pudo copiar automáticamente.'); return; }
     boxHost.textContent = '';
@@ -1389,7 +1424,7 @@ function sfxForSan(san) {
   return 'move';
 }
 function haptic(ms) { try { if (S.settings.sound !== false && navigator.vibrate && matchMedia('(pointer: coarse)').matches) navigator.vibrate(ms); } catch (e) { /* sin vibración */ } }
-function celebrate(colors) {
+function celebrate(colors, count = 90) {
   if (reduceMotion) return;
   const cv = h('canvas', { class: 'confetti', 'aria-hidden': 'true' }); document.body.append(cv);
   const dpr = Math.min(2, window.devicePixelRatio || 1), W = innerWidth, H = innerHeight;
@@ -1399,7 +1434,7 @@ function celebrate(colors) {
   ctx.scale(dpr, dpr);
   const cs = getComputedStyle(document.documentElement);
   const pal = colors.map(c => c.startsWith('--') ? cs.getPropertyValue(c).trim() : c).filter(Boolean);
-  const parts = Array.from({ length: 90 }, () => ({ x: W / 2 + (Math.random() - .5) * 140, y: H * .3, vx: (Math.random() - .5) * 10, vy: -Math.random() * 9 - 4, s: 6 + Math.random() * 7, r: Math.random() * 6, vr: (Math.random() - .5) * .3, c: pal[Math.floor(Math.random() * pal.length)] }));
+  const parts = Array.from({ length: count }, () => ({ x: W / 2 + (Math.random() - .5) * 140, y: H * .3, vx: (Math.random() - .5) * 10, vy: -Math.random() * 9 - 4, s: 6 + Math.random() * 7, r: Math.random() * 6, vr: (Math.random() - .5) * .3, c: pal[Math.floor(Math.random() * pal.length)] }));
   const t0 = performance.now();
   const step = now => {
     const t = now - t0; ctx.clearRect(0, 0, W, H);
@@ -1448,16 +1483,20 @@ function setTab(name) {
 }
 for (const t of $$('.tab')) t.addEventListener('click', () => setTab(t.dataset.tab));
 
+let shownChips = null;
 function renderChips() {
   syncLives();
   const c = $('#chips'); c.textContent = '';
+  // si cambiaron las estrellas o el rating desde la última vez, el chip da un saltito
+  const now = { stars: totalStars(), rating: Math.round(S.rating), id: S.profile && S.profile.id };
+  const prev = shownChips && shownChips.id === now.id ? shownChips : null; shownChips = now;
   const life = h('span', { class: 'chip', title: 'Vidas' }, icon('i-heart', 'heart'), String(S.lives));
   if (S.lives < MAX_LIVES) life.append(h('span', { class: 'sub' }, fmtMs(nextLifeIn())));
   const since = Date.now() - hurtAt;
   if (since < 700) { life.classList.add('hurt'); life.style.animationDelay = -since + 'ms'; life.firstChild.style.animationDelay = -since + 'ms'; }
   c.append(life,
-    h('span', { class: 'chip', title: 'Estrellas' }, icon('i-star', 'star'), String(totalStars())),
-    h('button', { class: 'chip chip-btn rank-chip', type: 'button', title: `Rango: ${rankOf().name} · rating táctico ${Math.round(S.rating)}`, 'aria-label': `Rango ${rankOf().name}, rating táctico ${Math.round(S.rating)}. Ver progreso`, onclick: () => { if (!session) setTab('progress'); } }, miniPiece(rankOf().p), String(Math.round(S.rating))),
+    h('span', { class: 'chip' + (prev && now.stars > prev.stars ? ' bump' : ''), title: 'Estrellas' }, icon('i-star', 'star'), String(now.stars)),
+    h('button', { class: 'chip chip-btn rank-chip' + (prev && now.rating !== prev.rating ? (now.rating > prev.rating ? ' bump up' : ' bump down') : ''), type: 'button', title: `Rango: ${rankOf().name} · rating táctico ${Math.round(S.rating)}`, 'aria-label': `Rango ${rankOf().name}, rating táctico ${Math.round(S.rating)}. Ver progreso`, onclick: () => { if (!session) setTab('progress'); } }, miniPiece(rankOf().p), String(Math.round(S.rating))),
     h('button', { class: 'chip chip-btn me-chip', type: 'button', id: 'me-chip', title: (S.profile && S.profile.name) || 'Tu perfil', 'aria-label': 'Tu perfil: sonido, consejos y cerrar sesión', 'aria-haspopup': 'dialog', onclick: e => toggleQuickMenu(e.currentTarget) },
       avatarEl('me-av'), S.settings.sound === false && S.settings.music === false ? icon('i-sound-off', 'me-mute') : null));
 }
@@ -1531,6 +1570,7 @@ function renderMap(scroll) {
       shareHost);
     root.append(card);
   }
+  root.append(infCard());
 
   // entrenamiento personal
   const minePending = S.mine.filter(m => !m.mastered);
@@ -1591,6 +1631,13 @@ function renderMap(scroll) {
     let d = `M${pts[0][0]} ${pts[0][1]}`;
     for (let i = 1; i < pts.length; i++) { const [x0, y0] = pts[i - 1], [x1, y1] = pts[i]; d += ` C${x0} ${y0 + ROW / 2} ${x1} ${y1 - ROW / 2} ${x1} ${y1}`; }
     path.append(svgEl('path', { d, 'vector-effect': 'non-scaling-stroke' }));
+    // el tramo ya recorrido se pinta con el color del mundo y sus puntitos avanzan hacia tu casilla
+    const upto = w.done ? n - 1 : w.current >= 0 ? w.current : w.stars.reduce((m, s2, k) => (s2 ? k : m), 0);
+    if (w.unlocked && upto > 0) {
+      let dd = `M${pts[0][0]} ${pts[0][1]}`;
+      for (let i = 1; i <= upto; i++) { const [x0, y0] = pts[i - 1], [x1, y1] = pts[i]; dd += ` C${x0} ${y0 + ROW / 2} ${x1} ${y1 - ROW / 2} ${x1} ${y1}`; }
+      path.append(svgEl('path', { class: 'walked', d: dd, 'vector-effect': 'non-scaling-stroke' }));
+    }
     trail.append(path);
     w.lv.forEach((lv, i) => {
       const stars = w.stars[i];
@@ -1598,13 +1645,13 @@ function renderMap(scroll) {
       const isCur = i === w.current;
       const avg = Math.round(lv.reduce((a, p) => a + p.rating, 0) / lv.length / 50) * 50;
       const node = h('button', { class: 'node' + (stars ? ' done' : '') + (isCur ? ' current' : '') + (locked ? ' locked' : ''),
-        style: { left: pts[i][0] + '%', top: (pts[i][1] - (isCur ? 36 : 30)) + 'px' },
+        style: { left: pts[i][0] + '%', top: (pts[i][1] - (isCur ? 36 : 30)) + 'px', '--i': i },
         'aria-label': `Nivel ${i + 1}${stars ? ', ' + stars + ' estrellas' : ''}${locked ? ', bloqueado' : ''}`,
-        disabled: locked ? true : null,
-        onclick: () => startLevel(w.key, i) });
+        'aria-disabled': locked ? 'true' : null,
+        onclick: () => locked ? lockedNode(node, w, gated) : startLevel(w.key, i) });
       node.append(h('span', { class: 'disc' }, locked ? icon('i-lock') : isCur ? '' : String(i + 1)));
       const st = h('span', { class: 'stars' });
-      if (stars) for (let k = 0; k < 3; k++) { const s = icon('i-star'); s.style.color = k < stars ? 'var(--brass)' : 'var(--line)'; st.append(s); }
+      if (stars) for (let k = 0; k < 3; k++) { const s = icon('i-star', k < stars ? 'lit' : null); s.style.color = k < stars ? 'var(--brass)' : 'var(--line)'; st.append(s); }
       else if (!locked) st.append(h('span', { class: 'diff' }, '≈' + avg));
       node.append(st);
       trail.append(node);
@@ -1617,6 +1664,7 @@ function renderMap(scroll) {
   const allDone = ws.length && ws.every(w => w.done);
   if (allDone) root.append(h('div', { class: 'notice good' }, h('strong', null, '¡Completaste todos los mundos! '), 'Sigue con tus errores personales y repasa los niveles para conseguir 3 estrellas.'));
   root.append(h('p', { class: 'credits' }, 'Los números junto a cada nivel son la dificultad estimada (escala de rating). Las vidas se recuperan solas: una cada 20 minutos.'));
+  revealOnScroll(root);
   if (tokenHopPending && currentNode) {
     const go = tokenHopPending; tokenHopPending = null; mapScrolled = true;
     setTimeout(() => { if (Music.view !== 'map' || !currentNode.isConnected) return; currentNode.scrollIntoView({ block: 'center', behavior: 'smooth' }); setTimeout(go, 520); }, 60);
@@ -1624,6 +1672,28 @@ function renderMap(scroll) {
   tokenHopPending = null;
 }
 
+// Casilla bloqueada: se sacude y explica qué falta (en vez de no hacer nada)
+function lockedNode(node, w, gated) {
+  const disc = node.querySelector('.disc');
+  if (disc) { disc.classList.remove('nope'); void disc.offsetWidth; disc.classList.add('nope'); }
+  Sound.play('nope'); haptic(25);
+  toast(gated ? 'Se abre al terminar lo básico en la Escuela.' : !w.unlocked ? 'Completa el mundo anterior para abrir este.' : `Primero supera el nivel ${w.current + 1}.`);
+}
+// Los niveles y mundos aparecen con un saltito cuando entran a la pantalla
+let revealIO = null;
+function revealOnScroll(root) {
+  if (reduceMotion || !('IntersectionObserver' in window)) return;
+  if (revealIO) revealIO.disconnect();
+  revealIO = new IntersectionObserver(entries => {
+    let k = 0;
+    for (const e of entries) {
+      if (!e.isIntersecting) continue;
+      e.target.style.setProperty('--d', (k++ * 55) + 'ms');
+      e.target.classList.add('in'); revealIO.unobserve(e.target);
+    }
+  }, { rootMargin: '0px 0px -6% 0px', threshold: 0.12 });
+  for (const el of root.querySelectorAll('.node, .world-banner')) { el.classList.add('rv'); revealIO.observe(el); }
+}
 // Tu pieza de rango se para en la casilla del siguiente nivel; cuando avanzas, salta hasta ella.
 const TOKEN_AT = {};
 let tokenHopPending = null;
@@ -1666,6 +1736,114 @@ function startMine(only) {
   startSession({ kind: 'mine', kicker: 'Tus partidas', title: 'Corrige tus errores', puzzles: pool.map(m => Object.assign({ personal: true }, m)), hideTheme: true });
 }
 
+// ---------------------------------------------------------------- modo infinito
+// Puzzles sin fin de todos los mundos. La dificultad sube un poco con cada acierto; hay 3 corazones por partida
+// (no gasta las vidas del mapa) y cada 5 resueltos subes de nivel y recuperas un corazón.
+const INF_HEARTS = 3, INF_PER_LEVEL = 5, INF_STEP = 22;
+let INF_ALL = null;
+function infStartRating() { return clamp(Math.round(S.rating) - 250, 550, 1350); }
+function infPick(inf) {
+  INF_ALL = INF_ALL || Object.values(PUZ);
+  const t = inf.base + inf.solved * INF_STEP, seen = S.seen || {};
+  let c = [];
+  for (const w of [80, 150, 260, 600]) { c = INF_ALL.filter(p => !inf.used.has(p.id) && Math.abs(p.rating - t) <= w); if (c.length >= 4) break; }
+  if (!c.length) { inf.used.clear(); c = INF_ALL.slice(); }
+  // variedad: nunca el mismo mundo dos veces seguidas y, si se puede, puzzles que no has visto
+  const other = c.filter(p => p.world !== inf.lastWorld); if (other.length) c = other;
+  const fresh = c.filter(p => !seen[p.id]); if (fresh.length >= 2) c = fresh;
+  const p = c[Math.floor(Math.random() * c.length)];
+  inf.used.add(p.id); inf.lastWorld = p.world;
+  return p;
+}
+function startInfinite() {
+  if (schoolGated()) { toast('El modo infinito se abre al terminar lo básico en la Escuela.'); return; }
+  const inf = { hearts: INF_HEARTS, solved: 0, level: 1, base: infStartRating(), used: new Set(), lastWorld: null, run: 0, bestRun: 0, lvlRes: [],
+    bestBefore: S.inf.best, bestLvBefore: S.inf.bestLv };
+  S.inf.runs++; save();
+  startSession({ kind: 'infinite', inf, kicker: 'Modo infinito', title: 'Nivel 1', puzzles: [infPick(inf)], hideTheme: true });
+}
+function infHearts(anim) {
+  const inf = session && session.inf; if (!inf) return null;
+  const el = h('span', { class: 'chip inf-hearts' + (anim === 'lose' ? ' hurt' : ''), id: 'inf-hearts', role: 'img', 'aria-label': `${inf.hearts} de ${INF_HEARTS} corazones` });
+  for (let k = 0; k < INF_HEARTS; k++) {
+    const full = k < inf.hearts;
+    const ic = icon(full ? 'i-heart' : 'i-heart-o', 'heart' + (full ? '' : ' empty'));
+    if (anim === 'lose' && k === inf.hearts) ic.classList.add('lost');
+    if (anim === 'gain' && k === inf.hearts - 1) ic.classList.add('gained');
+    el.append(ic);
+  }
+  return el;
+}
+function updateInfHearts(anim) { const old = $('#inf-hearts'), el = infHearts(anim); if (old && el) old.replaceWith(el); }
+// lo que pasa al resolver o fallar: corazones, racha, nivel y récord
+function infRecord(sc) {
+  const inf = session.inf;
+  if (sc > 0) {
+    inf.solved++; inf.lvlRes.push(sc);
+    inf.run = sc === 1 ? inf.run + 1 : 0; inf.bestRun = Math.max(inf.bestRun, inf.run);
+    if (inf.run >= 2) Sound.play('combo', 0.32, inf.run - 2);
+    if (inf.lvlRes.length >= INF_PER_LEVEL) {
+      inf.level++; inf.lvlRes = []; inf.levelUp = true;
+      inf.healed = inf.hearts < INF_HEARTS; if (inf.healed) inf.hearts++;
+    }
+    if (inf.run > 0 && inf.run % 5 === 0) session.cheerNext = true;
+    if (inf.solved > S.inf.best) {
+      if (inf.bestBefore > 0 && !inf.recordShown) { inf.recordShown = true; inf.flashRecord = true; }
+      S.inf.best = inf.solved; S.inf.bestLv = inf.level;
+    }
+    S.inf.bestRun = Math.max(S.inf.bestRun, inf.bestRun);
+  } else {
+    inf.run = 0; inf.hearts = Math.max(0, inf.hearts - 1);
+    updateInfHearts('lose'); haptic([40, 60, 40]); Sound.play('heartloss', 0.05);
+  }
+}
+// pantalla breve de "¡Nivel N!" entre puzzles
+function infLevelUp() {
+  const inf = session.inf, s0 = session;
+  const t = $('#play-title'); if (t) t.textContent = 'Nivel ' + inf.level;
+  if (inf.healed) updateInfHearts('gain');
+  const host = $('#board-host .board-wrap');
+  if (reduceMotion || !host) { loadPuzzle(); return; }
+  s0.leveling = true; setActions(); board.setInteractive(false);
+  const ov = h('div', { class: 'lvl-up', 'aria-hidden': 'true' },
+    h('div', { class: 'lu-k' }, 'Subiste al'), h('div', { class: 'lu-n' }, 'Nivel ' + inf.level),
+    inf.healed ? h('div', { class: 'lu-h' }, icon('i-heart', 'heart'), '+1 corazón') : h('div', { class: 'lu-h muted-h' }, 'Más difícil…'));
+  host.append(ov);
+  Sound.play('levelup', 0.02); if (inf.healed) Sound.play('heartgain', 0.55);
+  celebrate(['--brass', '--w-mate1', '--w-fork', '--w-hanging', '--w-mate2'], 46);
+  if (Math.random() < 0.6) s0.sayNext = { kind: 'inf-level', lv: inf.level };
+  setTimeout(() => { ov.classList.add('out'); }, 1250);
+  setTimeout(() => { ov.remove(); if (session === s0) loadPuzzle(); }, 1500);
+}
+function infShareText(r) {
+  const R = rankOf();
+  let t = `De Peón a Rey · Modo infinito ∞\nNivel ${r.level} · ${r.solved} puzzle${r.solved === 1 ? '' : 's'}`;
+  if (r.bestRun >= 3) t += ` · 🔥 ${r.bestRun} seguidos`;
+  t += `\n${R.sym} ${R.name}`;
+  const link = publicLink(); if (link) t += `\n${link}`;
+  return t;
+}
+// tarjeta del mapa: ∞ animado con los colores de los mundos
+function infinitySvg(cls, vb = '1.5 6.5 21 11') {
+  const s = svgEl('svg', { class: cls || 'inf-svg', viewBox: vb, 'aria-hidden': 'true' });
+  const d = 'M12 12C14 8.8 15.8 8 17.5 8A4 4 0 0 1 17.5 16C15.8 16 14 15.2 12 12C10 8.8 8.2 8 6.5 8A4 4 0 0 0 6.5 16C8.2 16 10 15.2 12 12Z';
+  s.append(svgEl('path', { class: 'inf-base', d, pathLength: 100 }), svgEl('path', { class: 'inf-run', d, pathLength: 100 }), svgEl('path', { class: 'inf-run r2', d, pathLength: 100 }));
+  return s;
+}
+function infCard() {
+  const gated = schoolGated(), I = S.inf;
+  return h('div', { class: 'card inf-card' + (gated ? ' locked' : '') },
+    h('div', { class: 'inf-bg', 'aria-hidden': 'true' }),
+    h('div', { class: 'inf-txt' },
+      h('div', { class: 'inf-k' }, 'Modo infinito'),
+      h('h3', null, 'Todos los mundos, sin final'),
+      h('p', { class: 'inf-meta' }, gated ? 'Se abre al terminar lo básico en la Escuela.'
+        : I.best ? ['Tu récord: ', h('strong', null, `${I.best} puzzle${I.best === 1 ? '' : 's'}`), ` · nivel ${I.bestLv}`]
+          : 'Tres corazones. Cada 5 puzzles subes de nivel y se pone más difícil.'),
+      h('button', { class: 'btn small inf-btn', disabled: gated, onclick: () => startInfinite() }, I.best ? 'Superar mi récord' : 'Jugar')),
+    infinitySvg('inf-svg'));
+}
+
 // ---------------------------------------------------------------- sesión de puzzles
 let session = null, board = null, game = null, st = null;
 function startSession(opts) {
@@ -1675,8 +1853,9 @@ function startSession(opts) {
   const root = $('#view-play'); root.textContent = '';
   const head = h('div', { class: 'play-head' },
     h('button', { class: 'icon-btn', 'aria-label': 'Salir al mapa', onclick: () => exitSession() }, icon('i-close')),
-    h('div', { class: 't' }, h('div', { class: 'k' }, session.kicker), h('h2', null, session.title)),
-    session.kind === 'level' || session.kind === 'skip' ? h('span', { class: 'chip' }, icon('i-heart', 'heart'), String(S.lives)) : null);
+    h('div', { class: 't' }, h('div', { class: 'k' }, session.kicker), h('h2', { id: 'play-title' }, session.title)),
+    session.kind === 'level' || session.kind === 'skip' ? h('span', { class: 'chip' }, icon('i-heart', 'heart'), String(S.lives))
+      : session.kind === 'infinite' ? infHearts() : null);
   const pips = h('div', { class: 'pips', id: 'pips' });
   const host = h('div', { id: 'board-host' });
   const status = h('div', { class: 'status', id: 'status', 'aria-live': 'polite' });
@@ -1688,11 +1867,26 @@ function startSession(opts) {
 }
 function exitSession() {
   Mascot.clearNote(true);
+  if (session && session.kind === 'infinite' && session.inf.solved) { S.inf.total += session.inf.solved; save(); }
   session = null; if (board) { board.setInteractive(false); board.setPick(null); }
   setTab(currentTab === 'play' ? 'map' : currentTab);
 }
 function renderPips() {
   const el = $('#pips'); if (!el) return; el.textContent = '';
+  if (session.kind === 'infinite') {
+    // modo infinito: los 5 del nivel actual, cuántos llevas y tu racha
+    const inf = session.inf;
+    const bumpN = inf.solved !== inf.shownN, bumpR = inf.run !== inf.shownRun && inf.run >= 2;
+    inf.shownN = inf.solved; inf.shownRun = inf.run;
+    el.classList.add('inf');
+    el.append(h('span', { class: 'inf-count' + (bumpN && inf.solved ? ' bump' : ''), title: 'Puzzles resueltos', 'aria-label': `${inf.solved} resueltos` }, icon('i-target'), h('b', null, String(inf.solved))));
+    const row = h('span', { class: 'inf-pips' });
+    for (let k = 0; k < INF_PER_LEVEL; k++) { const r = inf.lvlRes[k]; row.append(h('span', { class: 'pip' + (r === 1 ? ' ok' : r === .5 ? ' half' : k === inf.lvlRes.length ? ' on' : '') })); }
+    el.append(row);
+    el.append(h('span', { class: 'streak' + (inf.run >= 2 ? ' on' : '') + (inf.run >= 5 ? ' hot' : '') + (bumpR ? ' bump' : ''), title: 'Seguidos sin ayuda', 'aria-label': `${inf.run} seguidos sin ayuda` }, icon('i-flame'), h('b', null, String(inf.run))));
+    if (inf.flashRecord) { inf.flashRecord = false; el.append(h('span', { class: 'rec-flash', role: 'status' }, '¡Nuevo récord!')); Sound.play('brilliant', 0.1); }
+    return;
+  }
   session.puzzles.forEach((_, i) => {
     const r = session.results[i];
     el.append(h('span', { class: 'pip' + (r === 1 ? ' ok' : r === .5 ? ' half' : r === 0 ? ' ko' : i === session.i ? ' on' : '') }));
@@ -1705,9 +1899,11 @@ function setStatus(kind, title, sub, color) {
 function setActions(...btns) { const el = $('#actions'); el.textContent = ''; el.append(...btns.filter(Boolean)); }
 
 function loadPuzzle() {
+  session.leveling = false;
   const p = session.puzzles[session.i];
   Mascot.clearNote(true);
   if (session.cheerNext) { session.cheerNext = false; const s0 = session; setTimeout(() => { if (session === s0 && st && st.p === p) Mascot.react('streak'); }, 1200); }
+  else if (session.sayNext) { const s0 = session, sn = session.sayNext; session.sayNext = null; setTimeout(() => { if (session === s0 && st && st.p === p) Mascot.react(sn.kind, sn); }, 1300); }
   st = { p, step: 0, mistakes: 0, hint: false, over: false, busy: false };
   markSeen(p);
   renderPips();
@@ -1716,7 +1912,7 @@ function loadPuzzle() {
   if (p.type === 'threat') return loadThreat(p);
   if (p.personal) {
     st.solver = game.turn();
-    board.flip(st.solver); board.setPosition(p.fen, { last: p.prev ? [p.prev.slice(0, 2), p.prev.slice(2, 4)] : null });
+    board.flip(st.solver); board.setPosition(p.fen, { last: p.prev ? [p.prev.slice(0, 2), p.prev.slice(2, 4)] : null }); board.intro();
     setStatus('', `Juegan ${colorName(st.solver)}`, p.cls === 'miss'
       ? `Jugada ${p.moveNo} contra ${p.opp || 'tu rival'}. Tu rival acababa de equivocarse y no lo aprovechaste: encuentra cómo castigarlo.`
       : `Jugada ${p.moveNo} contra ${p.opp || 'tu rival'}. Aquí te equivocaste: encuentra una jugada mejor.`, st.solver);
@@ -1725,18 +1921,19 @@ function loadPuzzle() {
     return;
   }
   st.solver = game.turn() === 'w' ? 'b' : 'w';
-  board.flip(st.solver); board.setPosition(p.fen); board.setInteractive(false);
+  board.flip(st.solver); board.setPosition(p.fen); board.setInteractive(false); board.intro();
   setStatus('', `Juegan ${colorName(st.solver)}`, 'Mira la jugada de tu rival…', st.solver);
   setActions();
+  const me = st; // si el mismo puzzle se vuelve a cargar, este temporizador ya no cuenta
   setTimeout(() => {
-    if (!session || st.p !== p) return;
+    if (!session || st !== me) return;
     const m = game.move(uciObj(p.moves[0]));
     board.setPosition(game.fen(), { last: [m.from, m.to], animate: [m.from, m.to] });
     Sound.play(sfxForSan(m.san));
     st.step = 1; board.setInteractive(true);
     setStatus('', `Juegan ${colorName(st.solver)}`, 'Encuentra la mejor jugada.', st.solver);
     setActions(hintBtn(), themeTag());
-  }, reduceMotion ? 250 : 700);
+  }, reduceMotion ? 250 : 820);
 }
 function themeTag() {
   if (session.hideTheme) return null;
@@ -1756,11 +1953,12 @@ function hintBtn() {
 // ---------- puzzles de defensa: 1) ver la amenaza, 2) defenderse
 function loadThreat(p) {
   st.solver = game.turn() === 'w' ? 'b' : 'w'; st.phase = 'wait'; st.spotMiss = 0; st.defMiss = 0;
-  board.flip(st.solver); board.setPosition(p.fen); board.setInteractive(false);
+  board.flip(st.solver); board.setPosition(p.fen); board.setInteractive(false); board.intro();
   setStatus('', `Juegan ${colorName(st.solver)}`, 'Mira la jugada de tu rival…', st.solver);
   setActions();
+  const me = st;
   setTimeout(() => {
-    if (!session || st.p !== p) return;
+    if (!session || st !== me) return;
     const m = game.move(uciObj(p.last));
     board.setPosition(game.fen(), { last: [m.from, m.to], animate: [m.from, m.to] });
     Sound.play(sfxForSan(m.san));
@@ -1773,7 +1971,7 @@ function loadThreat(p) {
     board.setPick(sq => onPick(sq));
     setStatus('', '¿Qué amenaza tu rival?', `Jugó ${es(m.san)}. Toca tu pieza que está en peligro, o la pieza con la que te amenaza.`, st.solver);
     setActions(hintBtn(), themeTag());
-  }, reduceMotion ? 250 : 700);
+  }, reduceMotion ? 250 : 820);
 }
 function threatWhat() {
   if (st.threatMate) return 'darte mate';
@@ -1856,6 +2054,7 @@ async function onUserMove(from, to, promo, dragged) {
     board.setPosition(game.fen(), { last: [from, to], animate: dragged ? null : [from, to] });
     Sound.play(sfxForSan(mv.san)); board.mark(to, 'good');
     st.step++;
+    if (st.step < p.moves.length && !game.in_checkmate()) board.burst(to);
     if (st.step >= p.moves.length || game.in_checkmate()) return puzzleSolved();
     board.setInteractive(false);
     setStatus('ok', '¡Bien!', 'Sigue así…', st.solver);
@@ -1923,18 +2122,26 @@ function puzzleSolved(extra) {
   else if (p.type === 'threat') sub = (clean ? 'Viste la amenaza y te defendiste. ' : 'Resuelto con ayuda: cuenta como medio punto. ') + (extra || '');
   else if (session.hideTheme) sub += ' Tema: ' + p.themes.map(x => THEME_ES[x]).filter(Boolean).join(', ') + '.';
   setStatus('ok', clean ? '¡Correcto!' : 'Resuelto', sub, st.solver);
-  if (board.last) board.mark(board.last[1], 'good');
+  if (board.last) { board.mark(board.last[1], 'good'); board.burst(board.last[1], true); }
   Sound.play('correct', 0.12); haptic(18);
   record(sc);
   setActions(nextBtn());
   if (clean && !p.personal && !reduceMotion) setTimeout(() => { if (session && st.p === p && st.over) nextPuzzle(); }, p.type === 'threat' ? 2400 : 1500);
 }
 function nextBtn() {
-  const last = session.i >= session.puzzles.length - 1;
+  const last = session.kind === 'infinite' ? session.inf.hearts <= 0 : session.i >= session.puzzles.length - 1;
   return h('button', { class: 'btn primary', onclick: () => nextPuzzle() }, last ? 'Ver resultado' : 'Siguiente');
 }
 function nextPuzzle() {
   if (!session || !st.over) return;
+  if (session.kind === 'infinite') {
+    const inf = session.inf;
+    if (session.leveling) return; // la pantalla de "¡Nivel N!" ya va a cargar el siguiente
+    if (inf.hearts <= 0) return finishSession();
+    session.puzzles.push(infPick(inf)); session.i++;
+    if (inf.levelUp) { inf.levelUp = false; return infLevelUp(); }
+    return loadPuzzle();
+  }
   if (session.i >= session.puzzles.length - 1) return finishSession();
   session.i++; loadPuzzle();
 }
@@ -1957,8 +2164,11 @@ function record(sc) {
     if (m) { m.seen = (m.seen || 0) + 1; if (sc === 1) { m.wins = (m.wins || 0) + 1; if (m.wins >= 2) m.mastered = true; } else m.wins = 0; }
   }
   if (sc > 0) { S.solved++; touchStreak(); }
+  if (session.kind === 'infinite') infRecord(sc);
   // tres seguidos sin ayuda: Karen festeja (una vez por sesión)
   session.run = sc === 1 ? (session.run || 0) + 1 : 0;
+  // aciertos seguidos: una campanita que sube de tono (en el modo infinito la toca infRecord)
+  if (session.kind !== 'infinite' && session.run >= 2) Sound.play('combo', 0.32, session.run - 2);
   if (session.run === 3 && !session.cheered && session.i < session.puzzles.length - 1) { session.cheered = true; session.cheerNext = true; }
   if (session.kind === 'daily') {
     S.daily[session.date] = { n: dailyNumber(session.date), res: session.results.slice(0, session.i + 1), ms: session.msBefore + (Date.now() - session.t0), done: false };
@@ -1969,6 +2179,7 @@ function record(sc) {
 // 3 estrellas: 5 de 5 sin ayuda. 2: 4.5 puntos. 1 (pasar): 4 puntos. Con ayuda un puzzle vale 0.5.
 function starsFor(pts) { return pts >= 5 ? 3 : pts >= 4.5 ? 2 : pts >= 4 ? 1 : 0; }
 function finishSession() {
+  if (session.kind === 'infinite') return finishInfinite();
   const pts = session.results.reduce((a, b) => a + (b || 0), 0);
   const n = session.puzzles.length;
   let stars = 0, passed = true, headline = '', note = '';
@@ -2051,6 +2262,56 @@ function finishSession() {
     if (stars === 3 || (s0.kind === 'skip' && passed)) { setTimeout(() => celebrate(['--brass', '--sq-light', '--sq-dark', s0.worldKey ? WORLD_META[s0.worldKey].color.slice(4, -1) : '--good']), 420); Sound.play('brilliant', 0.55); }
   } else if (s0.kind === 'level' || s0.kind === 'skip') Sound.play('lose', 0.1);
   else Sound.play('done', 0.1);
+  session = null;
+  renderChips();
+}
+// fin de una partida del modo infinito: récord, nivel alcanzado y racha
+function finishInfinite() {
+  const s0 = session, inf = s0.inf, I = S.inf;
+  I.total += inf.solved;
+  S.ratingHist.push([Date.now(), Math.round(S.rating)]); if (S.ratingHist.length > 200) S.ratingHist = S.ratingHist.slice(-200);
+  save();
+  const record = inf.solved > inf.bestBefore && inf.solved > 0;
+  const delta = Math.round(S.rating - s0.ratingStart);
+  const rankBefore = Math.max(s0.rankStart || 0, S.rankMax || 0), rankNow = rankEligible(), rankUp = rankNow > rankBefore;
+  const rp0 = s0.rankProgress0 || rankProgress();
+  if (rankUp) { S.rankMax = rankNow; save(); }
+  const rp = rankProgress();
+  const res = { solved: inf.solved, level: inf.level, bestRun: inf.bestRun };
+  const root = $('#view-play'); root.textContent = '';
+  const shareHost = h('div', { class: 'share-host' });
+  const headline = record ? '¡Nuevo récord!' : inf.solved ? `Llegaste al nivel ${inf.level}` : 'Se acabaron los corazones';
+  const note = record && inf.bestBefore ? `Tu marca anterior era de ${inf.bestBefore} puzzle${inf.bestBefore === 1 ? '' : 's'}.`
+    : record ? 'Tu primera marca. Ahora a superarla.'
+      : I.best ? `Tu récord sigue en ${I.best} puzzle${I.best === 1 ? '' : 's'} (nivel ${I.bestLv}). Los que fallaste ya están en Repaso.`
+        : 'Los que fallaste ya están en Repaso para practicarlos sin prisa.';
+  const btns = h('div', { class: 'stack' },
+    h('button', { class: 'btn primary', onclick: () => startInfinite() }, 'Jugar otra vez'),
+    inf.solved ? h('button', { class: 'btn', onclick: () => shareResult(null, shareHost, infShareText(res)) }, 'Compartir') : null, shareHost,
+    h('button', { class: 'btn', onclick: () => exitSession() }, 'Volver al mapa'));
+  root.append(h('div', { class: 'result inf-result' + (record ? ' record' : '') },
+    h('div', { class: 'section-title' }, 'Modo infinito'),
+    h('div', { class: 'inf-score' }, infinitySvg('inf-svg big'), h('div', { class: 'n', id: 'inf-n' }, String(inf.solved)),
+      h('div', { class: 'l' }, inf.solved === 1 ? 'puzzle resuelto' : 'puzzles resueltos')),
+    h('h2', null, headline), h('p', { class: 'muted' }, note),
+    h('div', { class: 'stat-grid' },
+      h('div', { class: 'card' }, h('div', { class: 'v' }, String(inf.level)), h('div', { class: 'l' }, 'Nivel')),
+      h('div', { class: 'card' }, h('div', { class: 'v', id: 'rating-delta', style: { color: delta > 0 ? 'var(--good)' : delta < 0 ? 'var(--bad)' : 'var(--ink)' } }, delta ? (delta > 0 ? '+' : '') + delta : '0'), h('div', { class: 'l' }, 'Rating táctico')),
+      h('div', { class: 'card' }, h('div', { class: 'v' }, String(inf.bestRun)), h('div', { class: 'l' }, 'Mejor racha'))),
+    h('div', { class: 'rank-line' }, miniPiece(rp.R.p),
+      h('div', { class: 'track' }, h('div', { class: 'fill', id: 'rank-fill', style: { width: (rankUp ? 0 : rp0.pct) + '%' } })),
+      h('span', null, rankNeedsText(rp))),
+    btns));
+  requestAnimationFrame(() => requestAnimationFrame(() => { const f = $('#rank-fill'); if (f) f.style.width = rp.pct + '%'; }));
+  countUp($('#inf-n'), inf.solved, v => String(v), 900);
+  if (delta) countUp($('#rating-delta'), delta, v => (delta > 0 ? '+' : '−') + Math.abs(v));
+  if (record) { setTimeout(() => celebrate(['--brass', '--w-mate1', '--w-fork', '--w-hanging', '--w-mate2', '--w-pin']), 380); Sound.play('brilliant', 0.4); }
+  else Sound.play(inf.solved ? 'done' : 'lose', 0.1);
+  if (rankUp) setTimeout(() => showAscension(rankNow), 1300);
+  else setTimeout(() => {
+    if (session || Music.view !== 'play' || !$('#view-play .result')) return;
+    Mascot.react(record ? 'inf-record' : 'inf-end', { n: inf.solved });
+  }, 1700);
   session = null;
   renderChips();
 }
@@ -2643,6 +2904,17 @@ function renderProgress() {
     h('div', { class: 'card' }, h('div', { class: 'v' }, String(S.solved)), h('div', { class: 'l' }, 'Puzzles resueltos')),
     h('div', { class: 'card' }, h('div', { class: 'v', style: { display: 'flex', alignItems: 'center', gap: '4px' } }, icon('i-flame'), String(streakDays())), h('div', { class: 'l' }, 'Días seguidos'))));
   $('.kpi svg', root) && Object.assign($('.kpi svg', root).style, { width: '22px', height: '22px', color: 'var(--w-mate2)' });
+  // modo infinito
+  {
+    const I = S.inf;
+    root.append(h('div', { class: 'card inf-prog' }, infinitySvg('inf-svg'),
+      h('div', { style: { minWidth: 0 } },
+        h('div', { class: 'section-title', style: { margin: 0 } }, 'Modo infinito'),
+        I.runs ? h('div', null, h('strong', null, `Récord: ${I.best} puzzle${I.best === 1 ? '' : 's'}`), I.best ? ` · nivel ${I.bestLv}` : '')
+          : h('div', null, 'Todavía no lo juegas.'),
+        I.runs ? h('div', { class: 'muted', style: { fontSize: '14px' } }, `Mejor racha: ${I.bestRun} · ${I.runs} partida${I.runs === 1 ? '' : 's'} · ${I.total} resueltos`) : null),
+      schoolGated() ? null : h('button', { class: 'btn small', onclick: () => startInfinite() }, 'Jugar')));
+  }
 
   // evolución
   const hist = S.ratingHist.slice(-60);
@@ -3068,6 +3340,7 @@ function tourSteps() {
   return [
     { sel: null, title: name ? `¡Hola, ${name}!` : '¡Hola!', text: `Soy ${N} y voy a acompañarte de peón a rey. Te enseño cómo funciona todo en menos de un minuto.`, mood: 'wave', emote: 'sparkle' },
     { sel: '.daily', title: 'Reto diario', text: 'Cinco puzzles al día, los mismos para todos. No gasta vidas y al terminar puedes compartir tu resultado.', mood: 'point', emote: 'sparkle' },
+    gated ? null : { sel: '.inf-card', title: 'Modo infinito', text: 'Puzzles sin fin de todos los mundos, cada vez más difíciles. Tienes tres corazones y no gasta tus vidas. ¿Hasta qué nivel llegas?', mood: 'happy', emote: 'sparkle' },
     { sel: '.world-banner', title: 'Mundos', text: 'Cada mundo entrena un tipo de táctica. Toca "Ver lección" para aprender el patrón antes de jugar.', mood: 'think', prop: 'glasses', emote: 'idea' },
     gated
       ? { sel: '.school-cta', title: 'Primero, lo básico', text: 'Los mundos de táctica se abren cuando sepas mover las piezas. Para eso está mi escuela: empezamos desde cero, sin prisa.', mood: 'point', emote: 'exclaim' }
@@ -3079,7 +3352,7 @@ function tourSteps() {
     gated
       ? { sel: '.tab[data-tab="school"]', fixed: true, title: '¡Listo!', text: 'Vamos a tu primera lección: el tablero. Te explico todo y luego practicas. ¡Yo te echo porras!', mood: 'cheer', prop: 'partyhat', emote: 'sparkle', cta: 'Ir a la primera lección' }
       : { sel: '.node.current', title: '¡Listo!', text: 'Empieza por el primer nivel. Cada puzzle que resuelves te acerca al siguiente rango. ¡Yo te echo porras!', mood: 'cheer', prop: 'partyhat', emote: 'sparkle', cta: 'Jugar el primer nivel' },
-  ];
+  ].filter(Boolean);
 }
 // Mientras el tutorial está abierto la página no se mueve: ni rueda, ni dedo, ni teclado.
 let scrollLock = null;

@@ -40,13 +40,22 @@ Requisitos: `pip install chess` y Stockfish instalado (`sudo apt install stockfi
 ```bash
 # tácticas (archivo de salida, minutos, semilla); corre uno por núcleo
 python tools/gen_puzzles.py puzzles_a.jsonl 60 1
+# los mates en 1 ya sobran: con GEN_SALTAR el generador no pierde tiempo en ellos
+GEN_SALTAR=mate1 python tools/gen_puzzles.py puzzles_b.jsonl 60 2
 # puzzles de defensa
 python tools/gen_threats.py amenazas.jsonl 25 1
-# revisión profunda: deja solo los de solución correcta y única
-python tools/verify_puzzles.py tacticos puzzles_a.jsonl data/puzzles-generados.jsonl 2
-python tools/verify_puzzles.py defensa amenazas.jsonl data/puzzles-defensa.jsonl 2
+# revisión profunda: deja solo los de solución correcta y única (a un archivo aparte)
+python tools/verify_puzzles.py tacticos puzzles_a.jsonl revisados.jsonl 2
+python tools/verify_puzzles.py defensa amenazas.jsonl revisadas.jsonl 2
+# súmalos a los que ya hay (build.py descarta las posiciones repetidas)
+cat revisados.jsonl >> data/puzzles-generados.jsonl
+cat revisadas.jsonl >> data/puzzles-defensa.jsonl
 python tools/build.py
 ```
+
+Cada puzzle conserva su id para siempre (`data/puzzle-ids.json` guarda la huella de la posición y su id): así el repaso y los puzzles "ya vistos" de cada persona siguen apuntando al mismo puzzle aunque agregues más. Sube ese archivo junto con los puzzles nuevos.
+
+Cada mundo se reparte en hasta 20 niveles de dificultad creciente, con al menos 10 puzzles por nivel (`MAX_LEVELS` y `POOL_MIN` en `src/app.js`); `build.py` guarda hasta 300 por mundo (`CAP`). Un mundo con menos de 30 puzzles (3 niveles) no aparece y sus puzzles pasan a Táctica mixta. Al elegir los 300 de un mundo, los puzzles que ya se publicaron antes siempre se quedan.
 
 ### Agregar puzzles reales de Lichess
 
@@ -85,7 +94,7 @@ assets/                  ícono, manifest, vista previa para redes y dibujos de 
 assets/vendor/           chess.js y Firebase servidos desde el sitio (licencias en LICENSES.md)
 assets/fonts/            tipografías (SIL OFL)
 engine/                  Stockfish (WASM y respaldo asm.js)
-data/                    puzzles revisados y libro de aperturas
+data/                    puzzles revisados, registro de ids (puzzle-ids.json) y libro de aperturas
 config/                  site.json y plantilla de firebase-config.js
 tools/                   build, revisor de lecciones y generadores de puzzles, aperturas y partida de ejemplo
 docs/                    sitio listo para publicar (lo genera build.py)
@@ -97,6 +106,7 @@ screenshots/             capturas del README
 - `tools/build.py` junta `src/app.template.html`, `src/styles.css`, `src/lessons.js`, `src/school.js`, `src/app.js` (en ese orden, en un solo script) y los puzzles en `docs/index.html`, calcula la política de seguridad (CSP) y copia `assets/`, `engine/` y `data/openings.json`.
 - En las prácticas, Karen juega como principiante en el nivel 0 (le gustan las capturas y a veces deja piezas) y con Stockfish en los niveles 1 a 4, eligiendo entre sus mejores jugadas con un margen que se achica en cada nivel.
 - La clasificación de jugadas usa la probabilidad de ganar y la fórmula de precisión de Lichess.
+- **Modo infinito** (`startInfinite` en `src/app.js`): toma puzzles de todos los mundos sin repetir en la partida, nunca dos seguidos del mismo mundo y, si se puede, que no hayas visto. Empieza unos 250 puntos debajo de tu rating táctico (entre 550 y 1350) y la dificultad sube 22 puntos con cada acierto. Tres corazones por partida (no gasta las vidas del mapa); cada 5 resueltos subes de nivel y recuperas uno. Mueve el rating táctico igual que los niveles y guarda récord, nivel, mejor racha y total en `S.inf`.
 - La música se genera en el navegador: en los menús, un loop de bossa con piano eléctrico (síntesis FM), vibráfono, bajo, escobillas y reverberación; en la Escuela, un lo-fi para estudiar (Rhodes, bajo, batería con swing, kalimba y crujido de vinilo). Al cambiar de pestaña una baja y entra la otra.
 - Las frases de Karen salen de listas en `src/lessons.js` y no se repiten hasta agotar cada lista.
 - La mascota es el dibujo `assets/mascota/base.png` (o la pose del gesto) con capas encima, en este orden: ojos, boca, lentes, accesorios y reacciones (estas dos últimas en SVG), más animaciones CSS para el cuerpo.

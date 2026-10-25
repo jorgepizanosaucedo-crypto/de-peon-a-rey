@@ -622,6 +622,27 @@ const KAREN_LINES = {
     '¡Encendido! Así se entrena.',
     'Uno tras otro. ¿Me enseñas tu truco?',
   ],
+  infLevel: [
+    '¡Nivel {lv}! Esto se pone bueno.',
+    'Nivel {lv}. Ahora vienen más difíciles, pero tú también eres más fuerte.',
+    '¡Arriba! Nivel {lv}.',
+    'Nivel {lv}. Con calma: jaques, capturas y amenazas.',
+    '¡Nivel {lv}! Nadie te detiene.',
+    'Nivel {lv}. Ya se mezclan temas de varios mundos: ojo con todo.',
+  ],
+  infRecord: [
+    '¡Nuevo récord! {n} puzzles. Eso fue impresionante.',
+    '¡Récord! Nunca habías llegado tan lejos.',
+    '¡Superaste tu marca! Ahora te toca defenderla.',
+    '¡Récord nuevo! Me dejaste sin palabras… bueno, casi.',
+  ],
+  infEnd: [
+    'Se acabaron los corazones, pero no las ganas. ¿Otra?',
+    'Buen recorrido. Cada intento te hace más fuerte.',
+    'Nada mal. La próxima llegamos más lejos.',
+    'Los que fallaste te esperan en Repaso. Ahí está la mejora.',
+    'Respira, estira las manos y vamos por otra.',
+  ],
   schoolHello: ['¡Te doy la bienvenida a mi escuela! Aquí te enseño todo, paso a paso.', 'Esta es mi escuela. Cada bloque que termines te da un título nuevo.', '¡Hola de nuevo! ¿Seguimos donde nos quedamos?'],
   lessonStart: ['¡Vamos con {lesson}!', 'Empecemos: {lesson}.', '{lesson}. Esta me gusta mucho.', 'Lección: {lesson}. Pon atención… y diviértete.', '¡A clase! Hoy: {lesson}.', 'Siguiente tema: {lesson}.'],
   right: [
