@@ -589,22 +589,6 @@ body.gated #app, body.gated #tabbar { display: none !important; }
 .m-body[data-mood="think"] { animation: m-lean-l .6s ease-out forwards; }
 .m-body[data-mood="point"] { animation: m-lean-r .6s ease-out forwards; }
 .m-body[data-mood="sleepy"] { animation: m-sway 3.2s ease-in-out infinite; }
-/* brazos: la manga gira en el hombro y el antebrazo en el codo; el codo redondo solo se ve con el brazo doblado */
-.m-up, .m-fore, .m-fore-in { transform-box: view-box; }
-.m-up, .m-fore { transition: transform .55s var(--ease-spring); }
-.m-cap { opacity: 0; transition: opacity .12s; }
-.m-arm.bent .m-cap { opacity: 1; }
-.m-fore-in.waving { animation: m-wave .78s ease-in-out .35s 2; }
-@keyframes m-wave { 0%, 100% { transform: none; } 25% { transform: rotate(-12deg); } 75% { transform: rotate(9deg); } }
-.m-fore-in.nudge { animation: m-nudge .46s ease-in-out .55s 2; }
-.m-fore-in.pump { animation: m-pump .4s ease-out .45s 2; }
-.m-fore-in.pump-r { animation: m-pump-r .4s ease-out .6s 2; }
-.m-fore-in.fidget { animation: m-fidget .5s ease-in-out .5s 3; }
-.m-fore-in.fidget-r { animation: m-fidget .5s ease-in-out .75s 3 reverse; }
-@keyframes m-nudge { 50% { transform: rotate(-6deg); } }
-@keyframes m-pump { 40% { transform: rotate(10deg); } }
-@keyframes m-pump-r { 40% { transform: rotate(-10deg); } }
-@keyframes m-fidget { 25% { transform: rotate(4deg); } 75% { transform: rotate(-4deg); } }
 /* los lentes caen desde arriba hasta la cara */
 .m-lentes { transform-box: view-box; transform-origin: 181px 119px; }
 .m-lentes.pop { animation: m-lentes .42s var(--ease-spring) both; }
