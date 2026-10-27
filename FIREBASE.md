@@ -24,7 +24,7 @@ Tiempo: unos 10 minutos.
 
 1. Menú izquierdo: **Compilación → Firestore Database → Crear base de datos**.
 2. Ubicación: la que te sugiera (por ejemplo `nam5`). Modo: **producción**.
-3. Pestaña **Reglas**, reemplaza todo por esto y **Publicar**:
+3. Pestaña **Reglas**, reemplaza todo por esto y **Publicar** (es el mismo texto que `config/firestore.rules`):
 
 ```
 rules_version = '2';
@@ -62,8 +62,8 @@ para guardar otras cosas o archivos enormes (lo que podría acabarse el plan gra
 ```js
 window.FIREBASE_CONFIG = {
   apiKey: "AIza...",
-  authDomain: "de-peon-a-rey.firebaseapp.com",
-  projectId: "de-peon-a-rey",
+  authDomain: "de-peon-a-rey-e34b8.firebaseapp.com",
+  projectId: "de-peon-a-rey-e34b8",
   appId: "1:...:web:..."
 };
 ```
@@ -87,7 +87,7 @@ Firebase" si falta el dominio del paso 2).
 1. **Limita tu clave a tu sitio.** En https://console.cloud.google.com, con tu proyecto elegido:
    **APIs y servicios → Credenciales** → abre la clave "Browser key (auto created by Firebase)".
    - **Restricciones de aplicaciones → Sitios web**, agrega:
-     `https://jorgepizanosaucedo-crypto.github.io/*`, `https://de-peon-a-rey.firebaseapp.com/*` y `http://localhost:8000/*`.
+     `https://jorgepizanosaucedo-crypto.github.io/*`, `https://de-peon-a-rey-e34b8.firebaseapp.com/*` y `http://localhost:8000/*`.
    - **Restricciones de API → Restringir clave**, marca solo: *Identity Toolkit API*, *Token Service API*
      y *Cloud Firestore API*.
    Así, aunque alguien copie tu configuración, no puede usarla desde otro sitio.

@@ -1,0 +1,20 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Cada persona solo puede leer, escribir y borrar su propio documento.
+    match /users/{uid} {
+      allow read, delete: if request.auth != null && request.auth.uid == uid;
+      // Y solo con la forma que guarda la app: tres campos y un tamaño máximo.
+      allow create, update: if request.auth != null && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(['v', 'savedAt', 'state'])
+        && request.resource.data.v is int
+        && request.resource.data.savedAt is int
+        && request.resource.data.state is string
+        && request.resource.data.state.size() < 800000;
+    }
+    // Todo lo demás queda cerrado.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
