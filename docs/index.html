@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
 <meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-YFL+KWmcprPzXxoKFEj43PRgdw1LOIAEiujbwcalrNk=' https://apis.google.com https://www.gstatic.com; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob: https://*.googleusercontent.com; connect-src 'self' https://api.chess.com https://lichess.org https://*.googleapis.com https://*.firebaseio.com wss://*.firebaseio.com https://*.firebaseapp.com https://apis.google.com; frame-src https://*.firebaseapp.com https://*.web.app https://accounts.google.com https://apis.google.com; worker-src 'self'; manifest-src 'self'; media-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-gLgY+paPGoO4tTvStGEyT6e0hOu0XyIr4KLH5VDnfis=' https://apis.google.com https://www.gstatic.com; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob: https://*.googleusercontent.com; connect-src 'self' https://api.chess.com https://lichess.org https://*.googleapis.com https://*.firebaseio.com wss://*.firebaseio.com https://*.firebaseapp.com https://apis.google.com; frame-src https://*.firebaseapp.com https://*.web.app https://accounts.google.com https://apis.google.com; worker-src 'self'; manifest-src 'self'; media-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'">
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="description" content="Entrenador de ajedrez gratuito: aprende desde cero con Karen, entrena táctica por niveles y revisa tus partidas con Stockfish.">
@@ -2662,6 +2662,7 @@ function normalizeState(d) {
   const base = defaultState();
   const st = Object.assign(base, d, { settings: Object.assign(base.settings, d.settings || {}) });
   if (![12, 16, 18].includes(st.settings.depth)) st.settings.depth = 16;
+  st.epoch = Number.isFinite(+st.epoch) && +st.epoch > 0 ? Math.min(1e6, Math.floor(+st.epoch)) : 0; // cuenta los reinicios hechos a propósito
   st.games = (st.games || []).filter(g => g.v === 2);
   st.daily = st.daily || {};
   // Escuela: lecciones terminadas (con sus estrellas), si empezó desde cero y los títulos ya celebrados
@@ -2691,11 +2692,57 @@ function save() { S.savedAt = Date.now(); localSave(); scheduleCloud(); }
 // Sincronización con la nube (solo con cuentas activadas). Sin cuenta basta con localStorage.
 let cloud = null, cloudTimer = null;
 function scheduleCloud() { if (!cloud) return; clearTimeout(cloudTimer); cloudTimer = setTimeout(cloudSave, 1200); }
+// Cuánto avance tiene una copia. Sirve para que, al unir dispositivos, nunca gane la que tiene menos.
+function progressScore(st) {
+  const sum = o => Object.values(o || {}).reduce((a, v) => a + (+v || 0), 0);
+  const inf = st.inf || {}, sc = st.school || {};
+  return sum(st.levels) * 10 + sum(sc.done) * 10 + (st.solved || 0) + (st.ratingN || 0) + (inf.total || 0) + (inf.best || 0)
+    + (st.mine || []).length * 2 + (st.games || []).length * 2 + Object.keys(st.daily || {}).length * 3;
+}
+// Une dos copias del progreso de la misma cuenta (la de este dispositivo y la de la nube) sin perder avance.
+// Un reinicio hecho a propósito (epoch más alto) manda. Si no, se queda la copia con más avance y de la otra
+// se rescata lo que solo sube: estrellas, lecciones, títulos y récords. La fecha de guardado solo desempata,
+// porque cualquier gesto (como el saludo de Karen) la actualiza aunque no haya avance.
+function mergeStates(a, b) {
+  const ea = a.epoch || 0, eb = b.epoch || 0;
+  if (ea !== eb) return ea > eb ? a : b;
+  const sa = progressScore(a), sb = progressScore(b);
+  const win = sa !== sb ? (sa > sb ? a : b) : ((a.savedAt || 0) >= (b.savedAt || 0) ? a : b);
+  const lose = win === a ? b : a;
+  const up = (x, y) => { for (const [k, v] of Object.entries(y || {})) if ((+v || 0) > (+x[k] || 0)) x[k] = v; };
+  up(win.levels, lose.levels);
+  up(win.school.done, lose.school.done);
+  win.school.titles = [...new Set([...(win.school.titles || []), ...(lose.school.titles || [])])].slice(0, 40);
+  for (const k of ['best', 'bestLv', 'bestRun', 'runs', 'total']) win.inf[k] = Math.max(win.inf[k] || 0, lose.inf[k] || 0);
+  win.rankMax = Math.max(win.rankMax || 0, lose.rankMax || 0);
+  return win;
+}
+// Reemplaza el contenido de S sin cambiar el objeto, para que nada que lo tenga guardado quede apuntando a una copia vieja.
+function adoptState(src) { for (const k of Object.keys(S)) delete S[k]; Object.assign(S, src); }
+// Lee la nube y la une con lo de este dispositivo. Devuelve true si la nube tenía más avance y se adoptó.
+async function cloudMerge() {
+  const x = await cloud.ref.get();
+  if (!x.exists) return false;
+  const d = x.data(); if (!d || !d.state) return false;
+  const remote = normalizeState(safeParse(d.state)); remote.savedAt = d.savedAt || remote.savedAt || 0;
+  const merged = mergeStates(S, remote);
+  if (merged === S) return false;
+  adoptState(merged); S.savedAt = Date.now(); localSave();
+  return true;
+}
 async function cloudSave() {
   if (!cloud) return;
   if (cloud.busy) { cloud.pending = true; return; }
   cloud.busy = true;
-  try { await cloud.ref.set({ v: 1, savedAt: S.savedAt || Date.now(), state: JSON.stringify(S) }); }
+  try {
+    // Antes de escribir, se revisa que la nube no tenga más avance (por ejemplo, de otro dispositivo): lo guardado nunca retrocede.
+    if (cloud.kind === 'firebase' && Date.now() - (cloud.checked || 0) > 30000) {
+      cloud.checked = Date.now();
+      try { if (await cloudMerge()) { refreshAll(); toast('Tu progreso se actualizó con el de tu otro dispositivo.'); } }
+      catch (e) { /* sin lectura: se guarda como antes */ }
+    }
+    await cloud.ref.set({ v: 1, savedAt: S.savedAt || Date.now(), state: JSON.stringify(S) });
+  }
   catch (e) {
     if (e && ['permission-denied', 'unauthenticated', 'invalid-argument', 'resource-exhausted'].includes(e.code)) {
       cloud = null; toast('No se pudo guardar en tu cuenta. Tu progreso sigue en este navegador.'); return;
@@ -2705,7 +2752,15 @@ async function cloudSave() {
   if (cloud.pending) { cloud.pending = false; cloudSave(); }
 }
 window.addEventListener('pagehide', () => { if (cloud) { clearTimeout(cloudTimer); cloudSave(); } });
-document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden' && cloud) { clearTimeout(cloudTimer); cloudSave(); } });
+document.addEventListener('visibilitychange', () => {
+  if (!cloud) return;
+  if (document.visibilityState === 'hidden') { clearTimeout(cloudTimer); cloudSave(); return; }
+  // Al volver a la app, si no se está jugando, se trae lo que haya avanzado en otro dispositivo.
+  if (cloud.kind !== 'firebase' || cloud.busy || session || LS || tour || document.body.classList.contains('gated')) return;
+  if (Date.now() - (cloud.checked || 0) < 20000) return;
+  cloud.checked = Date.now();
+  cloudMerge().then(adopted => { if (adopted && !session && !LS) { refreshAll(); toast('Tu progreso se actualizó con el de tu otro dispositivo.'); scheduleCloud(); } }).catch(() => { /* sin conexión */ });
+});
 function syncLives() {
   if (S.lives >= MAX_LIVES) { S.lives = MAX_LIVES; S.livesTs = Date.now(); return; }
   const n = Math.floor((Date.now() - S.livesTs) / LIFE_MS);
@@ -3053,7 +3108,7 @@ class Engine {
   }
 }
 const engine = new Engine();
-const APP_VERSION = '2.7';
+const APP_VERSION = '2.7.1';
 
 // ---------------------------------------------------------------- sonido y celebraciones
 // Sonidos sintetizados con Web Audio: no hay archivos que descargar y funcionan sin conexión.
@@ -5530,7 +5585,7 @@ function renderProgress() {
   const askReset = () => {
     resetBox.textContent = '';
     resetBox.append(h('span', { style: { fontWeight: 700 } }, '¿Borrar todo tu progreso?'),
-      h('button', { class: 'btn small', style: { borderColor: 'var(--bad)', color: 'var(--bad)' }, onclick: () => { const keep = { profile: S.profile, account: S.account, owner: S.owner, settings: S.settings }; S = Object.assign(defaultState(), keep); save(); mapScrolled = false; renderProgress(); toast('Progreso reiniciado.'); } }, 'Sí, borrar'),
+      h('button', { class: 'btn small', style: { borderColor: 'var(--bad)', color: 'var(--bad)' }, onclick: () => { const keep = { profile: S.profile, account: S.account, owner: S.owner, settings: S.settings, epoch: (S.epoch || 0) + 1 }; S = Object.assign(defaultState(), keep); save(); mapScrolled = false; renderProgress(); toast('Progreso reiniciado.'); } }, 'Sí, borrar'),
       h('button', { class: 'btn small', onclick: () => { resetBox.textContent = ''; resetBox.append(resetBtn); } }, 'Cancelar'));
   };
   const resetBtn = h('button', { class: 'btn small', onclick: askReset }, 'Reiniciar progreso');
@@ -5633,8 +5688,10 @@ async function onFbUser(user) {
   try { const x = await ref.get(); d = x.exists ? x.data() : null; }
   catch (e) { toast('No se pudo leer tu cuenta. Por ahora tu progreso se guarda en este navegador.'); return; }
   if (d && d.state) {
-    // La cuenta ya tenía progreso: manda la nube, salvo que este navegador sea del mismo usuario y vaya más adelante.
-    if (!(S.owner === user.uid && (S.savedAt || 0) > (d.savedAt || 0))) S = normalizeState(safeParse(d.state));
+    // La cuenta ya tenía progreso: si este navegador ya era de esta cuenta, se unen las dos copias y gana la que tiene más avance;
+    // si no, manda la nube.
+    const remote = normalizeState(safeParse(d.state)); remote.savedAt = d.savedAt || remote.savedAt || 0;
+    S = S.owner === user.uid ? mergeStates(S, remote) : remote;
   } else if (S.owner && S.owner !== user.uid) {
     S = defaultState(); // progreso de otra cuenta en este navegador: no se mezcla
   } // cuenta nueva: se queda con el progreso de invitado de este navegador
