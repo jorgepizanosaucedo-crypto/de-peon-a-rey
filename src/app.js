@@ -106,7 +106,24 @@ function defaultState() {
     themeStats: {}, review: [], mine: [], games: [], streak: { last: null, days: 0 }, solved: 0,
     settings: { platform: 'chesscom', user: '', depth: 16 }, lessonsOpen: {}, savedAt: 0, rankMax: 0, daily: {},
     school: { done: {}, needBasics: false, skip: false, titles: [] },
-    inf: { best: 0, bestLv: 0, bestRun: 0, runs: 0, total: 0 } };
+    inf: { best: 0, bestLv: 0, bestRun: 0, runs: 0, total: 0 }, duel: duelDefault(), diag: null };
+}
+// Duelo de Karen (nivel secreto): si ya vio la cinemática, el escalón más alto que venció (-1 = ninguno), victorias,
+// derrotas y tablas por escalón, derrotas seguidas, el escalón y color elegidos, la partida en curso y las últimas.
+function duelDefault() { return { seen: false, best: -1, w: [0, 0, 0, 0, 0], l: [0, 0, 0, 0, 0], d: [0, 0, 0, 0, 0], lossRun: 0, tier: -1, color: 'w', cur: null, last: [] }; }
+function normalizeDuel(x) {
+  const D = duelDefault(); if (!x || typeof x !== 'object') return D;
+  const int = (v, lo, hi, def) => (Number.isFinite(+v) ? clamp(Math.floor(+v), lo, hi) : def);
+  const cnt = a => [0, 1, 2, 3, 4].map(i => (Array.isArray(a) ? int(a[i], 0, 1e5, 0) : 0));
+  const UCIS = /^([a-h][1-8][a-h][1-8][qrbn]?)( [a-h][1-8][a-h][1-8][qrbn]?)*$/;
+  D.seen = !!x.seen; D.best = int(x.best, -1, 4, -1); D.w = cnt(x.w); D.l = cnt(x.l); D.d = cnt(x.d);
+  D.lossRun = int(x.lossRun, 0, 99, 0); D.tier = int(x.tier, -1, 4, -1); D.color = ['w', 'b', 'r'].includes(x.color) ? x.color : 'w';
+  const c = x.cur;
+  if (c && typeof c === 'object' && ['w', 'b'].includes(c.color) && (c.moves === '' || (typeof c.moves === 'string' && c.moves.length <= 6000 && UCIS.test(c.moves))))
+    D.cur = { tier: int(c.tier, 0, 4, 0), color: c.color, moves: c.moves, t0: int(c.t0, 0, 9e15, 0), drawAt: int(c.drawAt, -99, 9999, -99) };
+  if (Array.isArray(x.last)) D.last = x.last.filter(g => g && typeof g.pgn === 'string' && g.pgn.length <= 30000 && ['win', 'loss', 'draw'].includes(g.res))
+    .slice(0, 3).map(g => ({ pgn: g.pgn, res: g.res, tier: int(g.tier, 0, 4, 0), color: g.color === 'b' ? 'b' : 'w', date: int(g.date, 0, 9e15, 0), why: typeof g.why === 'string' ? g.why.slice(0, 60) : '' }));
+  return D;
 }
 function normalizeState(d) {
   const base = defaultState();
@@ -124,6 +141,9 @@ function normalizeState(d) {
   const inf = st.inf && typeof st.inf === 'object' ? st.inf : {};
   const nat = (x, max) => (Number.isFinite(+x) && +x > 0 ? Math.min(max, Math.floor(+x)) : 0);
   st.inf = { best: nat(inf.best, 1e5), bestLv: nat(inf.bestLv, 1e4), bestRun: nat(inf.bestRun, 1e5), runs: nat(inf.runs, 1e6), total: nat(inf.total, 1e7) };
+  st.duel = normalizeDuel(st.duel);
+  st.diag = normalizeDiag(st.diag); // diagnóstico de Karen (resumen de tus partidas)
+  st.mine = Array.isArray(st.mine) ? st.mine.filter(m => m && typeof m === 'object' && typeof m.id === 'string' && typeof m.fen === 'string' && /^[a-h][1-8][a-h][1-8][qrbn]?$/.test(m.best) && /^[a-h][1-8][a-h][1-8][qrbn]?$/.test(m.played)).slice(-MINE_MAX) : [];
   return st;
 }
 // JSON.parse que descarta claves peligrosas (__proto__, constructor, prototype) de datos guardados
@@ -145,9 +165,11 @@ function scheduleCloud() { if (!cloud) return; clearTimeout(cloudTimer); cloudTi
 // Cuánto avance tiene una copia. Sirve para que, al unir dispositivos, nunca gane la que tiene menos.
 function progressScore(st) {
   const sum = o => Object.values(o || {}).reduce((a, v) => a + (+v || 0), 0);
-  const inf = st.inf || {}, sc = st.school || {};
+  const inf = st.inf || {}, sc = st.school || {}, du = st.duel || {};
+  const games = a => (Array.isArray(a) ? a.reduce((x, v) => x + (+v || 0), 0) : 0);
   return sum(st.levels) * 10 + sum(sc.done) * 10 + (st.solved || 0) + (st.ratingN || 0) + (inf.total || 0) + (inf.best || 0)
-    + (st.mine || []).length * 2 + (st.games || []).length * 2 + Object.keys(st.daily || {}).length * 3;
+    + (st.mine || []).length * 2 + (st.games || []).length * 2 + Object.keys(st.daily || {}).length * 3
+    + ((du.best == null ? -1 : du.best) + 1) * 40 + (games(du.w) + games(du.l) + games(du.d)) * 5;
 }
 // Une dos copias del progreso de la misma cuenta (la de este dispositivo y la de la nube) sin perder avance.
 // Un reinicio hecho a propósito (epoch más alto) manda. Si no, se queda la copia con más avance y de la otra
@@ -165,6 +187,12 @@ function mergeStates(a, b) {
   win.school.titles = [...new Set([...(win.school.titles || []), ...(lose.school.titles || [])])].slice(0, 40);
   for (const k of ['best', 'bestLv', 'bestRun', 'runs', 'total']) win.inf[k] = Math.max(win.inf[k] || 0, lose.inf[k] || 0);
   win.rankMax = Math.max(win.rankMax || 0, lose.rankMax || 0);
+  // duelo: lo que solo sube (escalón vencido, partidas por escalón y si ya vio la cinemática)
+  const dw = win.duel = normalizeDuel(win.duel), dl = normalizeDuel(lose.duel);
+  dw.seen = dw.seen || dl.seen; dw.best = Math.max(dw.best, dl.best);
+  for (const k of ['w', 'l', 'd']) dw[k] = dw[k].map((v, i) => Math.max(v, dl[k][i]));
+  // diagnóstico: se queda el más reciente
+  if (lose.diag && (!win.diag || (lose.diag.at || 0) > (win.diag.at || 0))) win.diag = lose.diag;
   return win;
 }
 // Reemplaza el contenido de S sin cambiar el objeto, para que nada que lo tenga guardado quede apuntando a una copia vieja.
@@ -206,7 +234,7 @@ document.addEventListener('visibilitychange', () => {
   if (!cloud) return;
   if (document.visibilityState === 'hidden') { clearTimeout(cloudTimer); cloudSave(); return; }
   // Al volver a la app, si no se está jugando, se trae lo que haya avanzado en otro dispositivo.
-  if (cloud.kind !== 'firebase' || cloud.busy || session || LS || tour || document.body.classList.contains('gated')) return;
+  if (cloud.kind !== 'firebase' || cloud.busy || session || LS || DU || tour || document.body.classList.contains('gated')) return;
   if (Date.now() - (cloud.checked || 0) < 20000) return;
   cloud.checked = Date.now();
   cloudMerge().then(adopted => { if (adopted && !session && !LS) { refreshAll(); toast('Tu progreso se actualizó con el de tu otro dispositivo.'); scheduleCloud(); } }).catch(() => { /* sin conexión */ });
@@ -506,6 +534,7 @@ class Engine {
       const t = setTimeout(() => { w.terminate(); rej(new Error('timeout')); }, 20000);
       w.onmessage = e => {
         const line = typeof e.data === 'string' ? e.data : '';
+        if (line.startsWith('option name UCI_Elo ')) this.hasElo = true; // puede jugar con fuerza limitada (duelo de Karen)
         if (line === 'uciok') {
           clearTimeout(t); this.w = w; this.name = name;
           w.onmessage = ev => { const l = typeof ev.data === 'string' ? ev.data : ''; for (const fn of this.listeners.slice()) fn(l); };
@@ -556,9 +585,40 @@ class Engine {
       this.w.postMessage('go depth ' + depth);
     });
   }
+  // Juega con fuerza limitada (UCI_Elo) y vuelve a la fuerza completa en cuanto responde, para que el analizador
+  // nunca quede debilitado. Devuelve la jugada y la evaluación de su búsqueda (desde las blancas).
+  play(fen, elo, movetime) {
+    const run = () => this._play(fen, elo, movetime);
+    const p = this.queue.then(run, run);
+    this.queue = p.catch(() => {});
+    return p;
+  }
+  _play(fen, elo, movetime) {
+    return new Promise(res => {
+      const turnW = fen.split(' ')[1] === 'w'; let cp = null;
+      const fn = line => {
+        if (line.startsWith('info') && line.includes(' score ') && !/ (lower|upper)bound/.test(line)) {
+          const m = line.match(/score (cp|mate) (-?\d+)/);
+          if (m) { const v = +m[2], s = m[1] === 'cp' ? v : (v > 0 ? 10000 - v * 10 : -10000 - v * 10); cp = turnW ? s : -s; }
+        } else if (line.startsWith('bestmove')) {
+          this.listeners = this.listeners.filter(x => x !== fn);
+          this.w.postMessage('setoption name UCI_LimitStrength value false');
+          const best = line.split(/\s+/)[1];
+          res({ best: best && best !== '(none)' ? best : null, cp });
+        }
+      };
+      this.listeners.push(fn);
+      this.w.postMessage('setoption name MultiPV value 1');
+      this.w.postMessage('setoption name UCI_LimitStrength value true');
+      this.w.postMessage('setoption name UCI_Elo value ' + Math.round(clamp(elo, 1320, 3190)));
+      this.w.postMessage('position fen ' + fen);
+      this.w.postMessage('go movetime ' + Math.round(movetime));
+    });
+  }
+  newGame() { if (this.w) { this.w.postMessage('ucinewgame'); this.w.postMessage('isready'); } }
 }
 const engine = new Engine();
-const APP_VERSION = '2.7.1';
+const APP_VERSION = '2.8';
 
 // ---------------------------------------------------------------- sonido y celebraciones
 // Sonidos sintetizados con Web Audio: no hay archivos que descargar y funcionan sin conexión.
@@ -587,6 +647,29 @@ const Sound = {
     const o = c.createOscillator(); o.type = 'sine'; o.frequency.setValueAtTime(freq / 8, t); o.frequency.exponentialRampToValueAtTime(freq / 13, t + 0.06);
     const g2 = c.createGain(); g2.gain.setValueAtTime(gain * 0.5, t); g2.gain.exponentialRampToValueAtTime(0.001, t + 0.08);
     o.connect(g2); g2.connect(c.destination); o.start(t); o.stop(t + 0.09);
+  },
+  // ruido largo (2 s) para truenos, barridos y platillos de la cinemática del duelo
+  longNoise() {
+    if (this.lnoise) return this.lnoise;
+    const c = this.ctx, len = Math.floor(c.sampleRate * 2), buf = c.createBuffer(1, len, c.sampleRate), d = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+    return (this.lnoise = buf);
+  },
+  // metal tipo trompeta: dos sierras desafinadas con un filtro que se abre y se cierra
+  brass(t, freq, dur, gain, open = 2600) {
+    const c = this.ctx, lp = c.createBiquadFilter(), g = c.createGain();
+    lp.type = 'lowpass'; lp.Q.value = 2; lp.frequency.setValueAtTime(400, t); lp.frequency.exponentialRampToValueAtTime(open, t + 0.08); lp.frequency.exponentialRampToValueAtTime(700, t + dur);
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(gain, t + 0.04); g.gain.setValueAtTime(gain, t + dur * 0.6); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    lp.connect(g); g.connect(c.destination);
+    for (const det of [-7, 7]) { const o = c.createOscillator(); o.type = 'sawtooth'; o.frequency.value = freq; o.detune.value = det; o.connect(lp); o.start(t); o.stop(t + dur + 0.05); }
+  },
+  noiseSweep(t, dur, f0, f1, gain, type = 'bandpass', q = 1.2, rise = false) {
+    const c = this.ctx, src = c.createBufferSource(), f = c.createBiquadFilter(), g = c.createGain();
+    src.buffer = this.longNoise(); f.type = type; f.Q.value = q;
+    f.frequency.setValueAtTime(f0, t); f.frequency.exponentialRampToValueAtTime(f1, t + dur);
+    if (rise) { g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(gain, t + dur * 0.92); g.gain.exponentialRampToValueAtTime(0.0001, t + dur + 0.08); }
+    else { g.gain.setValueAtTime(gain, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur); }
+    src.connect(f); f.connect(g); g.connect(c.destination); src.start(t); src.stop(t + Math.min(2, dur + 0.1));
   },
   tone(t, freq, dur, gain, type, endFreq) {
     const c = this.ctx; const o = c.createOscillator(); o.type = type || 'sine';
@@ -625,6 +708,48 @@ const Sound = {
         case 'heartgain': this.tone(t, 659, 0.12, 0.06, 'triangle'); this.tone(t + 0.08, 988, 0.22, 0.06, 'triangle'); this.tone(t + 0.08, 1976, 0.16, 0.02, 'sine'); break;
         case 'levelup': [523, 659, 784, 1047].forEach((f, i) => { this.tone(t + i * 0.085, f, 0.24, 0.075, 'triangle'); this.tone(t + i * 0.085, f * 2, 0.14, 0.018, 'sine'); }); this.tone(t + 0.36, 1568, 0.5, 0.05, 'sine'); break;
         case 'combo': { const f = 880 * Math.pow(2, Math.min(n, 12) / 12); this.tone(t, f, 0.12, 0.05, 'sine'); this.tone(t + 0.06, f * 1.5, 0.2, 0.04, 'sine'); break; }
+        // ---- duelo de Karen: cinemática y resultados
+        case 'fanfare': { // ¡felicidades!: arpegio de metales y acorde final con brillo
+          [392, 523, 659, 784].forEach((f, i) => this.brass(t + i * 0.11, f, 0.22, 0.045));
+          [523, 659, 784, 1047].forEach(f => this.brass(t + 0.48, f, 1.5, 0.04, 3200));
+          [1568, 2093, 2637].forEach((f, i) => this.tone(t + 0.5 + i * 0.07, f, 0.9, 0.025, 'sine'));
+          this.noiseSweep(t + 0.46, 1.6, 9000, 6000, 0.05, 'highpass', 0.7);
+          break;
+        }
+        case 'riser': this.noiseSweep(t, 1.5, 300, 7000, 0.07, 'bandpass', 1.4, true); this.tone(t, 180, 1.5, 0.03, 'sawtooth', 720); break;
+        case 'drone': { // zumbido grave que crece: "pero…"
+          const c2 = this.ctx, lp = c2.createBiquadFilter(), g = c2.createGain();
+          lp.type = 'lowpass'; lp.frequency.setValueAtTime(160, t); lp.frequency.linearRampToValueAtTime(520, t + 2.6);
+          g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.11, t + 2.2); g.gain.exponentialRampToValueAtTime(0.0001, t + 3.2);
+          lp.connect(g); g.connect(c2.destination);
+          for (const [f, det] of [[36.7, 0], [36.7, 9], [55, -6]]) { const o = c2.createOscillator(); o.type = 'sawtooth'; o.frequency.value = f; o.detune.value = det; o.connect(lp); o.start(t); o.stop(t + 3.3); }
+          break;
+        }
+        case 'boom': { // trueno grave
+          const c2 = this.ctx, o = c2.createOscillator(), g = c2.createGain();
+          o.frequency.setValueAtTime(78, t); o.frequency.exponentialRampToValueAtTime(26, t + 1.1);
+          g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.42, t + 0.015); g.gain.exponentialRampToValueAtTime(0.0001, t + 1.4);
+          o.connect(g); g.connect(c2.destination); o.start(t); o.stop(t + 1.5);
+          this.noiseSweep(t, 1.6, 900, 120, 0.22, 'lowpass', 0.8);
+          break;
+        }
+        case 'whoosh': this.noiseSweep(t, 0.42, 500, 4200, 0.06, 'bandpass', 2, true); break;
+        case 'reveal': { // aparece Karen maestra: golpe de re menor, trueno y platillo
+          [146.8, 174.6, 220, 293.7].forEach(f => this.brass(t, f, 1.9, 0.05, 1800));
+          [73.4].forEach(f => this.brass(t, f, 2.2, 0.06, 600));
+          this.play('boom'); this.noiseSweep(t + 0.02, 2, 9000, 4000, 0.07, 'highpass', 0.6);
+          break;
+        }
+        case 'gong': { // derrota: gong grave
+          [[98, 0.09], [98 * 2.76, 0.04], [98 * 5.4, 0.02], [98 * 1.48, 0.03]].forEach(([f, gn]) => this.tone(t, f, 2.6, gn, 'sine', f * 0.985));
+          break;
+        }
+        case 'victory': { // ganarle a Karen: fanfarria más larga
+          this.play('fanfare');
+          [587, 740, 880, 1175].forEach((f, i) => this.brass(t + 1.2 + i * 0.09, f, 0.24, 0.04));
+          [587, 740, 880, 1175].forEach(f => this.brass(t + 1.6, f, 1.8, 0.035, 3400));
+          break;
+        }
       }
     } catch (e) { /* audio no disponible */ }
   },
@@ -714,13 +839,36 @@ const LOFI = (() => {
   ];
   return { form: [[C, null], [C, m1], [C, m2], [C, m1]], bars: 32 };
 })();
+// Duelo de Karen: re menor, lento y tenso. Cuerdas, arpegio grave de piano, bajo largo, timbales y una campana.
+const DUEL = (() => {
+  const Dm = { v: [57, 62, 65, 69], b: 38 }, Bb = { v: [58, 62, 65, 70], b: 34 }, Gm = { v: [58, 62, 67, 70], b: 43 }, A = { v: [57, 61, 64, 69], b: 45 };
+  const F = { v: [57, 60, 65, 69], b: 41 }, Cc = { v: [55, 60, 64, 67], b: 36 }, A7 = { v: [55, 61, 64, 67], b: 45 };
+  const P1 = [Dm, Dm, Bb, Bb, Gm, Gm, A, A], P2 = [Dm, Bb, F, Cc, Gm, Dm, A7, A];
+  const m1 = [
+    [[0, 74, 6], [6, 77, 2], [8, 76, 8]], [[0, 74, 4], [4, 72, 4], [8, 73, 8]], [[0, 70, 6], [6, 72, 2], [8, 74, 8]], [[0, 77, 8], [8, 76, 4], [12, 74, 4]],
+    [[0, 79, 6], [6, 77, 2], [8, 74, 8]], [[0, 70, 4], [4, 74, 4], [8, 79, 8]], [[0, 76, 6], [6, 73, 2], [8, 69, 8]], [[0, 73, 4], [4, 76, 4], [8, 81, 8]],
+  ];
+  const m2 = [
+    [[0, 81, 8], [8, 77, 4], [12, 74, 4]], [[0, 82, 6], [6, 81, 2], [8, 77, 8]], [[0, 81, 4], [4, 77, 4], [8, 72, 8]], [[0, 79, 6], [6, 76, 2], [8, 72, 8]],
+    [[0, 79, 4], [4, 82, 4], [8, 79, 8]], [[0, 77, 6], [6, 74, 2], [8, 69, 8]], [[0, 76, 4], [4, 73, 4], [8, 69, 4], [12, 73, 4]], [[0, 76, 12]],
+  ];
+  return { form: [[P1, null], [P1, m1], [P2, m2], [P1, m1]], bars: 32 };
+})();
 const Music = {
   vol: 0.4, playing: false, gesture: false, view: 'map', timer: null, stopT: null, swapT: null, step: 0, nextT: 0, bus: null, song: 'bossa', vinyl: null,
-  get bpm() { return this.song === 'lofi' ? 72 : 84; },
-  level() { return this.vol * (this.song === 'lofi' ? 1.2 : 1); }, // las dos canciones suenan igual de fuerte
+  override: null, duck: 1, // override: una canción (o 'silence') que manda sobre la de la pantalla, como en la cinemática del duelo
+  get bpm() { return this.song === 'lofi' ? 72 : this.song === 'duel' ? 76 : 84; },
+  // las canciones suenan igual de fuerte; duck la baja mientras se juega el duelo
+  level() { return this.vol * (this.song === 'lofi' ? 1.2 : this.song === 'duel' ? 0.92 : 1) * this.duck; },
   enabled() { return S.settings.music !== false; },
-  songFor(view) { return view === 'school' || view === 'lesson' ? 'lofi' : 'bossa'; },
-  wanted() { return this.enabled() && this.gesture && !document.hidden && this.view !== 'play'; },
+  songFor(view) { return this.override && this.override !== 'silence' ? this.override : view === 'duel' ? 'duel' : view === 'school' || view === 'lesson' ? 'lofi' : 'bossa'; },
+  wanted() { return this.enabled() && this.gesture && !document.hidden && this.override !== 'silence' && (this.view !== 'play' || !!this.override); },
+  setOverride(song) { this.override = song; this.update(); },
+  setDuck(x) {
+    this.duck = x; const c = Sound.ctx;
+    if (!c || !this.bus || !this.playing || this.swapTo) return;
+    const g = this.bus.master.gain, now = c.currentTime; g.cancelScheduledValues(now); g.setValueAtTime(g.value, now); g.linearRampToValueAtTime(this.level(), now + 1.2);
+  },
   update() {
     const w = this.wanted();
     if (w && !this.playing) this.start();
@@ -801,7 +949,32 @@ const Music = {
     a.gain.setValueAtTime(vel, t); a.gain.exponentialRampToValueAtTime(0.0001, t + dur);
     o.connect(a); a.connect(this.bus.perc); o.start(t); o.stop(t + dur + 0.02);
   },
-  playStep(c, k, t) { if (this.song === 'lofi') this.playLofi(c, k, t); else this.playBossa(c, k, t); },
+  playStep(c, k, t) { if (this.song === 'lofi') this.playLofi(c, k, t); else if (this.song === 'duel') this.playDuel(c, k, t); else this.playBossa(c, k, t); },
+  strings(c, t, notes, dur, vel) { // cuerdas: sierras desafinadas, filtro cerrado y ataque lento
+    const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 1300;
+    const a = c.createGain(); a.gain.setValueAtTime(0.0001, t); a.gain.exponentialRampToValueAtTime(vel, t + 1.1); a.gain.setValueAtTime(vel, t + dur - 0.4); a.gain.exponentialRampToValueAtTime(0.0001, t + dur + 0.9);
+    lp.connect(a); a.connect(this.bus.pad);
+    for (const n of notes) for (const det of [-9, 9]) { const o = c.createOscillator(); o.type = 'sawtooth'; o.frequency.value = this.midi(n); o.detune.value = det; o.connect(lp); o.start(t); o.stop(t + dur + 1); }
+  },
+  playDuel(c, k, t) {
+    const sp = 60 / this.bpm / 4, bar = Math.floor(k / 16), s = k % 16;
+    const sec = Math.floor(bar / 8) % DUEL.form.length, [chords, mel] = DUEL.form[sec], bi = bar % 8, ch = chords[bi];
+    const r = () => 0.88 + Math.random() * 0.24, hum = () => Math.random() * 0.006;
+    // cuerdas: un acorde largo cada dos compases (o cada compás si cambia el acorde)
+    if (s === 0 && (bi % 2 === 0 || chords[bi - 1] !== ch)) this.strings(c, t, ch.v.map(n => n - 12), sp * (chords[bi + 1] === ch ? 32 : 16), 0.016);
+    // arpegio grave de piano en corcheas: fundamental, quinta, tercera, quinta…
+    const arp = [0, 2, 1, 3, 0, 2, 1, 2];
+    if (s % 2 === 0) { const n = ch.v[arp[s / 2]] - 12; this.ep(c, t + hum(), n, sp * 2.2, (s === 0 ? 0.05 : 0.032) * r()); }
+    // bajo largo
+    if (s === 0) this.bass(c, t, ch.b, sp * 14, 0.11 * r());
+    if (s === 12 && bi % 2 === 1) this.bass(c, t, ch.b + 7 > 50 ? ch.b - 5 : ch.b + 7, sp * 3.5, 0.07 * r());
+    // timbal al empezar cada frase y un latido suave en la introducción
+    if (s === 0 && bi % 4 === 0) this.kick(c, t, 0.13, 38, 72, 0.9);
+    if (!mel && (s === 8 || s === 10) && bi % 2 === 1) this.kick(c, t, s === 8 ? 0.07 : 0.05, 44, 80, 0.3);
+    if (mel && s % 4 === 2) this.noiseHit(c, t + hum(), 'highpass', 8000, 0.7, 0.03, 0.022 * r());
+    // campana
+    if (mel) for (const [ms, n, len] of mel[bi]) if (ms === s) this.vib(c, t + hum(), n, len * sp, 0.085 * r());
+  },
   playBossa(c, k, t) {
     const sp = 60 / this.bpm / 4, bar = Math.floor(k / 16), s = k % 16;
     const [chords, mel] = SONG.form[Math.floor(bar / 8) % SONG.form.length], bi = bar % 8, ch = chords[bi];
@@ -858,7 +1031,7 @@ const Music = {
   setSong(c, song) {
     this.song = song; this.step = 0; this.nextT = c.currentTime + 0.08;
     const lofi = song === 'lofi', now = c.currentTime;
-    this.bus.tone.frequency.setTargetAtTime(lofi ? 2400 : 5200, now, 0.05);
+    this.bus.tone.frequency.setTargetAtTime(lofi ? 2400 : song === 'duel' ? 3800 : 5200, now, 0.05);
     this.bus.vin.gain.setTargetAtTime(lofi ? 0.09 : 0, now, 0.1);
     if (lofi) this.startVinyl(c); else this.stopVinyl();
   },
@@ -867,7 +1040,7 @@ const Music = {
     if (this.nextT < c.currentTime) this.nextT = c.currentTime + 0.05;
     while (this.nextT < c.currentTime + 0.35) {
       try { this.playStep(c, this.step, this.nextT); } catch (e) { /* nada */ }
-      const form = this.song === 'lofi' ? LOFI : SONG;
+      const form = this.song === 'lofi' ? LOFI : this.song === 'duel' ? DUEL : SONG;
       this.nextT += 60 / this.bpm / 4; this.step = (this.step + 1) % (form.bars * 16);
     }
   },
@@ -942,7 +1115,22 @@ const MASCOT = {
     angry: ['preocupada', 'ondulada'], sleepy: ['cerrados', 'dormida'],
   },
   blink: 'cerrados', talk: 'habla',
-  openEyes: [null, 'sorprendida', 'pensando', 'preocupada'], // las que pueden parpadear
+  openEyes: [null, 'sorprendida', 'pensando', 'preocupada', 'seria', 'orgullosa', 'concentrada'], // las que pueden parpadear
+  // Karen maestra (duelo final): blazer, falda, lentes rectangulares y cara seria. Cada ánimo "m-…" es una pose
+  // famosa de ajedrecista con su cara. Al hablar usa una boca seria, sin la lengua de fuera.
+  master: {
+    'm-idle': { pose: 'maestra-reposo', face: ['seria', 'recta'] },             // de pie, esperando tu jugada
+    'm-hello': { pose: 'maestra-saludo', face: ['seria', 'media-sonrisa'] },    // bienvenida al duelo
+    'm-think': { pose: 'maestra-pensador', face: ['concentrada', 'recta'] },    // su turno: calcula
+    'm-focus': { pose: 'maestra-concentracion', face: ['concentrada', 'recta'] }, // jugadas críticas
+    'm-winning': { pose: 'maestra-brazos-cruzados', face: ['orgullosa', 'media-sonrisa'] }, // ella va ganando
+    'm-shock': { pose: 'maestra-sienes', face: ['sorprendida', 'o'] },          // tu jugada brillante
+    'm-respect': { pose: 'maestra-saludo-militar', face: ['seria', 'media-sonrisa'] }, // buena jugada tuya
+    'm-offer': { pose: 'maestra-invita', face: ['seria', 'media-sonrisa'] },    // tablas, "tu turno"
+    'm-win': { pose: 'maestra-puno-pecho', face: ['orgullosa', 'recta'] },      // Karen gana
+    'm-lose': { pose: 'maestra-rey', face: ['orgullosa', 'media-sonrisa'] },    // Karen tumba su rey
+  },
+  masterTalk: 'habla-seria', masterGlasses: 'mascota/lentes-maestra.png',
   // Pose de cada ánimo (si hay varias, se turnan). Sin pose = brazos abajo, como en el dibujo original.
   // "Explica" (point) señala arriba o abajo según dónde esté lo que explica.
   poses: {
@@ -964,12 +1152,22 @@ const MASCOT = {
     return [this.base, this.glasses, ...[...poses].map(this.poseSrc),
       ...this.eyes.map(n => this.src('ojos', n)), ...this.mouths.map(n => this.src('boca', n))];
   },
+  // las capas de la maestra solo se cargan cuando el duelo ya está abierto
+  allMaster() {
+    const M = Object.values(this.master);
+    return [this.masterGlasses, this.src('boca', this.masterTalk), ...new Set([...M.map(m => this.poseSrc(m.pose)),
+      ...M.map(m => this.src('ojos', m.face[0])), ...M.map(m => this.src('boca', m.face[1]))])];
+  },
 };
 // Se cargan una sola vez para que el primer parpadeo o el primer gesto no tarden.
-let mascotLoaded = false;
+let mascotLoaded = false, masterLoaded = false;
 function preloadMascot() {
   if (mascotLoaded) return; mascotLoaded = true;
   for (const src of MASCOT.all()) { const im = new Image(); im.decoding = 'async'; im.src = src; }
+}
+function preloadMaster() {
+  if (masterLoaded) return Promise.resolve(); masterLoaded = true;
+  return Promise.all(MASCOT.allMaster().map(src => new Promise(res => { const im = new Image(); im.decoding = 'async'; im.onload = im.onerror = res; im.src = src; })));
 }
 const MV = { x: -90, y: -210, w: 620, h: 1312 }; // lienzo con espacio para reacciones arriba y a los lados
 const KHEAD = { x: 30, y: -6, w: 310, h: 310 };   // solo la cara, para el circulito junto al tablero
@@ -1030,8 +1228,9 @@ class KarenFig {
     this.bodyPose = null;
     this.eyes = layer(); this.mouth = layer();
     this.lentes = svgEl('image', Object.assign({ href: MASCOT.glasses, class: 'm-lentes', display: 'none' }, full));
+    this.lentesM = svgEl('image', Object.assign({ class: 'm-lentes', display: 'none' }, full)); // los de la maestra (se cargan al usarlos)
     this.props = svgEl('g', { class: 'm-props' }); this.emote = svgEl('g', { class: 'm-emote' });
-    this.svg.append(this.img, this.next, this.eyes, this.mouth, this.lentes, this.props, this.emote);
+    this.svg.append(this.img, this.next, this.eyes, this.mouth, this.lentes, this.lentesM, this.props, this.emote);
     this.body = h('div', { class: 'm-body' }); this.body.append(this.svg);
     // parpadea sola mientras esté en la página (la mascota flotante lo controla ella misma al mostrarse)
     const born = Date.now();
@@ -1046,14 +1245,20 @@ class KarenFig {
     el.setAttribute('href', MASCOT.src(i ? 'boca' : 'ojos', name)); el.removeAttribute('display');
   }
   pose({ mood = 'idle', prop = null, emote = null, at = null } = {}, bigEmote = false) {
-    this.mood = mood; this.face = MASCOT.faces[mood] || MASCOT.faces.idle;
+    const M = MASCOT.master[mood];
+    this.mood = mood; this.face = M ? M.face : MASCOT.faces[mood] || MASCOT.faces.idle;
     clearTimeout(this.timers.unblink);
     this.setLayer(0, this.face[0]);
     if (!this.talking) this.setLayer(1, this.face[1]); // si está hablando, la boca nueva entra en el siguiente movimiento
     this.body.removeAttribute('data-mood'); void this.body.offsetWidth; this.body.setAttribute('data-mood', mood);
     const props = [].concat(prop || []);
-    this.setPose(props.includes('magnifier') ? MASCOT.lupa : this.poseFor(mood, at));
-    const lentes = props.includes('glasses');
+    this.setPose(M ? M.pose : props.includes('magnifier') ? MASCOT.lupa : this.poseFor(mood, at));
+    // la maestra siempre lleva sus lentes rectangulares; caen a la cara la primera vez
+    if (!!M !== !this.lentesM.hasAttribute('display')) {
+      if (M) { this.lentesM.setAttribute('href', MASCOT.masterGlasses); this.lentesM.removeAttribute('display'); this.lentesM.classList.remove('pop'); void this.lentesM.getBoundingClientRect(); this.lentesM.classList.add('pop'); }
+      else this.lentesM.setAttribute('display', 'none');
+    }
+    const lentes = !M && props.includes('glasses');
     if (lentes !== !this.lentes.hasAttribute('display')) {
       if (lentes) { this.lentes.removeAttribute('display'); this.lentes.classList.remove('pop'); void this.lentes.getBoundingClientRect(); this.lentes.classList.add('pop'); }
       else this.lentes.setAttribute('display', 'none');
@@ -1117,13 +1322,14 @@ class KarenFig {
   }
   // Al hablar la boca se abre y se cierra a un ritmo un poco irregular, como al decir sílabas.
   // Con movimiento reducido solo se queda abierta mientras escribe.
+  talkMouth() { return MASCOT.master[this.mood] ? MASCOT.masterTalk : MASCOT.talk; }
   startTalk() {
     this.body.classList.add('talking'); this.talking = true;
     clearTimeout(this.timers.talk);
-    if (reduceMotion) { this.setLayer(1, MASCOT.talk); return; }
+    if (reduceMotion) { this.setLayer(1, this.talkMouth()); return; }
     let open = false;
     const flap = () => {
-      open = !open; this.setLayer(1, open ? MASCOT.talk : this.face[1]);
+      open = !open; this.setLayer(1, open ? this.talkMouth() : this.face[1]);
       this.timers.talk = setTimeout(flap, open ? 100 + Math.random() * 70 : 70 + Math.random() * 60);
     };
     flap();
@@ -1263,7 +1469,7 @@ const Mascot = {
   stopType() { this.ty.stop(); },
   // consejo con globo; se cierra solo o al tocarlo
   say(text, o = {}) {
-    if (tour || !text) return false;
+    if (tour || !text || DUEL_CINE) return false;
     if (!o.force && (!this.enabled() || document.body.classList.contains('gated'))) return false;
     if (!o.force && Date.now() - this.lastAt < (o.gap == null ? 15000 : o.gap)) return false;
     this.lastAt = Date.now();
@@ -1329,8 +1535,6 @@ const Mascot = {
       case 'inf-record': return say(karenLine('infRecord', { n: d.n }), { mood: 'cheer', prop: 'partyhat', emote: 'sparkle', gap: 0 });
       case 'inf-end': return say(karenLine('infEnd'), { mood: d.n >= 10 ? 'happy' : 'wave', emote: d.n >= 10 ? 'heart' : 'sparkle', gap: 0 });
       case 'rank-up': return say(d.k === RANKS.length - 1 ? karenLine('rankTop') : karenLine('rankUp', { rank: RANKS[d.k].name }), { mood: 'cheer', prop: 'crown', emote: 'sparkle', gap: 0, force: this.enabled() });
-      case 'analysis': return say(d.n > 1 ? karenLine('analysisSome', { n: d.n }) : d.n === 1 ? karenLine('analysisOne') : karenLine('analysisNone'),
-        d.n ? { mood: 'think', prop: ['glasses', 'magnifier'], emote: 'idea', gap: 0 } : { mood: 'cheer', prop: 'glasses', emote: 'sparkle', gap: 0 });
     }
     return false;
   },
@@ -1516,15 +1720,17 @@ function showView(name) {
   if (SCH_TY && name !== 'school') SCH_TY.stop();
   if (!tour && Mascot.shown) Mascot.hide();
   for (const v of $$('.view')) v.hidden = v.dataset.view !== name;
-  $('#tabbar').hidden = name === 'play' || name === 'lesson';
+  $('#tabbar').hidden = name === 'play' || name === 'lesson' || name === 'duel';
   document.body.classList.toggle('in-school', name === 'school' || name === 'lesson');
-  document.body.classList.toggle('in-lesson', name === 'lesson');
+  document.body.classList.toggle('in-lesson', name === 'lesson' || name === 'duel'); // el duelo usa el mismo acomodo que la lección
+  document.body.classList.toggle('in-duel', name === 'duel');
   document.body.classList.toggle('in-play', name === 'play');
-  if (name === 'lesson') $('#app').classList.add('wide');
+  if (name === 'lesson' || name === 'duel') $('#app').classList.add('wide');
   window.scrollTo({ top: 0 });
 }
 function setTab(name) {
   if (LS) schClose(true);
+  if (DU) duelClose();
   currentTab = name;
   $('#app').classList.remove('wide');
   for (const t of $$('.tab')) t.setAttribute('aria-selected', t.dataset.tab === name ? 'true' : 'false');
@@ -1627,16 +1833,16 @@ function renderMap(scroll) {
   }
   root.append(infCard());
 
-  // entrenamiento personal
-  const minePending = S.mine.filter(m => !m.mastered);
+  // entrenamiento personal: errores de tus partidas (se practican con la explicación de Karen) y puzzles fallados
+  const pendMine = S.mine.filter(m => !m.mastered);
   const train = h('div', { class: 'train' });
   root.append(h('p', { class: 'section-title' }, 'Tu entrenamiento'), train);
-  if (minePending.length || S.review.length) {
+  if (pendMine.length || S.review.length) {
     train.append(
       h('div', { class: 'card' },
-        h('div', { class: 'big', style: { color: 'var(--mine)' } }, String(minePending.length)),
+        h('div', { class: 'big', style: { color: 'var(--mine)' } }, String(pendMine.length)),
         h('div', { class: 'lbl' }, 'errores de tus partidas por corregir'),
-        h('button', { class: 'btn small', disabled: !minePending.length, onclick: () => startMine() }, 'Practicar')),
+        h('button', { class: 'btn small', disabled: !pendMine.length, onclick: () => { AZ.view = 'mine'; setTab('analyze'); } }, 'Practicar')),
       h('div', { class: 'card' },
         h('div', { class: 'big' }, String(S.review.length)),
         h('div', { class: 'lbl' }, 'puzzles fallados para repasar'),
@@ -1717,9 +1923,14 @@ function renderMap(scroll) {
     root.append(sec);
   });
   const allDone = ws.length && ws.every(w => w.done);
-  if (allDone) root.append(h('div', { class: 'notice good' }, h('strong', null, '¡Completaste todos los mundos! '), 'Sigue con tus errores personales y repasa los niveles para conseguir 3 estrellas.'));
+  // nivel secreto: el duelo de Karen aparece al final del mapa cuando ya terminaste todo (y viste la cinemática)
+  const ready = allDone && duelReady();
+  if (ready && S.duel.seen) root.append(duelSecretSection());
+  else if (allDone) root.append(h('div', { class: 'notice good' }, h('strong', null, '¡Completaste todos los mundos! '),
+    ready ? 'Lo lograste todo.' : 'Sigue con tus errores personales y repasa los niveles para conseguir 3 estrellas. Y si también terminas todas las lecciones de la Escuela… algo va a pasar.'));
   root.append(h('p', { class: 'credits' }, 'Los números junto a cada nivel son la dificultad estimada (escala de rating). Las vidas se recuperan solas: una cada 20 minutos.'));
   revealOnScroll(root);
+  duelMaybeIntro();
   if (tokenHopPending && currentNode) {
     const go = tokenHopPending; tokenHopPending = null; mapScrolled = true;
     setTimeout(() => { if (Music.view !== 'map' || !currentNode.isConnected) return; currentNode.scrollIntoView({ block: 'center', behavior: 'smooth' }); setTimeout(go, 520); }, 60);
@@ -1785,10 +1996,21 @@ function startReview() {
   if (!list.length) return;
   startSession({ kind: 'review', kicker: 'Repaso', title: 'Puzzles fallados', puzzles: list, hideTheme: true });
 }
-function startMine(only) {
+// key: un tipo de error (piezas sin defensa, mates…) para practicar solo esos
+function startMine(only, key) {
   const pool = only || shuffle(S.mine.filter(m => !m.mastered)).slice(0, 5);
   if (!pool.length) return;
-  startSession({ kind: 'mine', kicker: 'Tus partidas', title: 'Corrige tus errores', puzzles: pool.map(m => Object.assign({ personal: true }, m)), hideTheme: true });
+  startSession({ kind: 'mine', kicker: 'Tus partidas', title: key ? DG_NAME[key] : 'Corrige tus errores', mineKey: key || null, puzzles: pool.map(m => Object.assign({ personal: true }, m)), hideTheme: true });
+}
+// Al terminar un error de tus partidas, Karen explica qué pasó (si está apagada, la explicación va en el texto).
+function mineTell(p, solved, uci, title, fallback) {
+  const r = mineExplain(p, solved, uci);
+  if (Mascot.enabled()) {
+    setStatus(solved ? 'ok' : 'ko', title, solved ? '' : null, st.solver);
+    Mascot.sayInline(r.text, { mood: r.mood, prop: 'glasses' });
+    // en pantallas bajas la explicación queda debajo del botón: se acerca para que se lea
+    setTimeout(() => { const n = $('#view-play .k-note'); if (n && n.getBoundingClientRect().bottom > innerHeight) n.scrollIntoView({ block: 'end', behavior: reduceMotion ? 'auto' : 'smooth' }); }, 350);
+  } else setStatus(solved ? 'ok' : 'ko', title, r.text || fallback, st.solver);
 }
 
 // ---------------------------------------------------------------- modo infinito
@@ -1968,9 +2190,7 @@ function loadPuzzle() {
   if (p.personal) {
     st.solver = game.turn();
     board.flip(st.solver); board.setPosition(p.fen, { last: p.prev ? [p.prev.slice(0, 2), p.prev.slice(2, 4)] : null }); board.intro();
-    setStatus('', `Juegan ${colorName(st.solver)}`, p.cls === 'miss'
-      ? `Jugada ${p.moveNo} contra ${p.opp || 'tu rival'}. Tu rival acababa de equivocarse y no lo aprovechaste: encuentra cómo castigarlo.`
-      : `Jugada ${p.moveNo} contra ${p.opp || 'tu rival'}. Aquí te equivocaste: encuentra una jugada mejor.`, st.solver);
+    setStatus('', `Juegan ${colorName(st.solver)}`, minePrompt(p), st.solver);
     board.setInteractive(true);
     setActions(hintBtn());
     return;
@@ -2100,6 +2320,7 @@ async function onUserMove(from, to, promo, dragged) {
       st.busy = false;
     }
     if (!session || st.p !== p) return;
+    st.used = uci;
     if (good) return puzzleSolved(uci === p.best ? null : `También vale. El motor prefería ${es(sanOf(before, p.best))}.`);
     game.undo(); board.setPosition(before, { last: p.prev ? [p.prev.slice(0, 2), p.prev.slice(2, 4)] : null });
     return wrongMove(from, to);
@@ -2141,7 +2362,7 @@ function wrongMove(from, to) {
 async function failPuzzle() {
   st.over = true; board.setInteractive(false); board.setPick(null);
   const p = st.p;
-  setTimeout(() => { if (session && st && st.p === p) Mascot.react('puzzle-fail', { themes: p.themes || [] }); }, 1100);
+  if (!p.personal) setTimeout(() => { if (session && st && st.p === p) Mascot.react('puzzle-fail', { themes: p.themes || [] }); }, 1100);
   if (p.type === 'threat') {
     const best = p.ok[0];
     board.arrows([...(st.threatArrow || []), { from: best.slice(0, 2), to: best.slice(2, 4), color: 'var(--good)' }]);
@@ -2149,7 +2370,7 @@ async function failPuzzle() {
   } else if (p.personal) {
     const san = es(sanOf(game.fen(), p.best));
     board.arrows([{ from: p.best.slice(0, 2), to: p.best.slice(2, 4), color: 'var(--good)' }]);
-    setStatus('ko', `La mejor era ${san}`, `En la partida jugaste ${es(sanOf(p.fen, p.played))}. Volverá a salir en tu próxima práctica.`, st.solver);
+    mineTell(p, false, null, Mascot.enabled() ? 'Así se resolvía' : `La mejor era ${san}`, `En la partida jugaste ${es(sanOf(p.fen, p.played))}. Volverá a salir en tu próxima práctica.`);
   } else {
     setStatus('ko', 'Así se resolvía', 'Mira la solución completa.', st.solver);
     const sans = [];
@@ -2172,11 +2393,13 @@ function puzzleSolved(extra) {
   const clean = st.mistakes === 0 && !st.hint;
   const sc = clean ? 1 : .5;
   const p = st.p;
-  let sub = clean ? 'Resuelto a la primera.' : 'Resuelto con ayuda: cuenta como medio punto.';
-  if (p.personal) sub = (extra ? extra + ' ' : '') + `En tu partida jugaste ${es(sanOf(p.fen, p.played))}.`;
-  else if (p.type === 'threat') sub = (clean ? 'Viste la amenaza y te defendiste. ' : 'Resuelto con ayuda: cuenta como medio punto. ') + (extra || '');
-  else if (session.hideTheme) sub += ' Tema: ' + p.themes.map(x => THEME_ES[x]).filter(Boolean).join(', ') + '.';
-  setStatus('ok', clean ? '¡Correcto!' : 'Resuelto', sub, st.solver);
+  if (p.personal) mineTell(p, true, st.used, clean ? '¡Correcto!' : 'Resuelto', (extra ? extra + ' ' : '') + `En tu partida jugaste ${es(sanOf(p.fen, p.played))}.`);
+  else {
+    let sub = clean ? 'Resuelto a la primera.' : 'Resuelto con ayuda: cuenta como medio punto.';
+    if (p.type === 'threat') sub = (clean ? 'Viste la amenaza y te defendiste. ' : 'Resuelto con ayuda: cuenta como medio punto. ') + (extra || '');
+    else if (session.hideTheme) sub += ' Tema: ' + p.themes.map(x => THEME_ES[x]).filter(Boolean).join(', ') + '.';
+    setStatus('ok', clean ? '¡Correcto!' : 'Resuelto', sub, st.solver);
+  }
   if (board.last) { board.mark(board.last[1], 'good'); board.burst(board.last[1], true); }
   Sound.play('correct', 0.12); haptic(18);
   record(sc);
@@ -2286,7 +2509,8 @@ function finishSession() {
   } else if (s0.kind === 'daily') {
     btns.append(h('button', { class: 'btn primary', onclick: () => shareResult(s0.date, shareHost) }, 'Compartir resultado'), shareHost);
   } else if (s0.kind === 'mine' && S.mine.some(m => !m.mastered)) {
-    btns.append(h('button', { class: 'btn primary', onclick: () => startMine() }, 'Otra ronda'));
+    const more = s0.mineKey && minePending(s0.mineKey).length;
+    btns.append(h('button', { class: 'btn primary', onclick: () => (more ? startMineKey(s0.mineKey) : startMine()) }, 'Otra ronda'));
   } else if (s0.kind === 'review' && S.review.length) {
     btns.append(h('button', { class: 'btn primary', onclick: () => startReview() }, 'Seguir repasando'));
   }
@@ -2372,7 +2596,7 @@ function finishInfinite() {
 }
 
 // ---------------------------------------------------------------- analizador
-let AZ = { view: 'home', list: [], fetchErr: null, loading: false, analysis: null, idx: 0, running: null, pasteColor: 'auto' };
+let AZ = { view: 'home', list: [], fetchErr: null, loading: false, analysis: null, idx: 0, running: null, pasteColor: 'auto', cache: {} };
 const DEPTHS = [[12, 'Rápido'], [16, 'Normal'], [18, 'Profundo']];
 
 // Clasificación de jugadas (estilo Chess.com, umbrales en % de probabilidad de ganar)
@@ -2467,14 +2691,20 @@ function isTrivialOnlyMove(A, i, prevErr) {
 function renderAnalyze() {
   const root = $('#view-analyze'); root.textContent = '';
   $('#app').classList.toggle('wide', AZ.view === 'analysis' && !!AZ.analysis && !!AZ.analysis.done);
+  // al cambiar de pantalla dentro del Analizador se empieza arriba
+  if (AZ.shown !== AZ.view) { if (AZ.shown) window.scrollTo(0, 0); AZ.shown = AZ.view; }
   if (AZ.view === 'analysis' && AZ.analysis) return renderAnalysis(root);
   if (AZ.view === 'list') return renderGameList(root);
+  if (AZ.view === 'mine') return renderMineView(root);
+  if (AZ.view === 'diag') return renderDiag(root);
+  if (AZ.view === 'diag-run') return renderDiagRun(root);
   // formulario
   const set = S.settings;
   const openSample = () => { const sg = JSON.parse($('#sample-game').textContent); openGame(Object.assign({ id: 'sample', label: 'Partida de ejemplo' }, sg)); };
   root.append(h('h2', { style: { fontSize: '28px', fontWeight: 800, marginBottom: '6px' } }, 'Analiza tus partidas'),
     h('p', { class: 'muted', style: { marginTop: 0 } }, 'Stockfish revisa cada jugada en tu navegador, la clasifica (de brillante a error grave) y convierte tus errores en puzzles para practicar.'),
     h('div', { class: 'row', style: { marginBottom: '16px' } }, h('button', { class: 'btn small', onclick: openSample }, 'Ver un análisis de ejemplo'), h('span', { class: 'muted', style: { fontSize: '14px' } }, 'Una partida simulada de nivel 650.')));
+  const mc = mineCard(); if (mc) root.append(mc);
   const plat = h('div', { class: 'seg', role: 'group', 'aria-label': 'Plataforma' });
   for (const [k, label] of [['chesscom', 'Chess.com'], ['lichess', 'Lichess']]) plat.append(h('button', { type: 'button', 'aria-pressed': set.platform === k ? 'true' : 'false', onclick: () => { set.platform = k; save(); renderAnalyze(); } }, label));
   const user = h('input', { type: 'text', id: 'az-user', value: set.user, placeholder: 'Tu usuario', autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false' });
@@ -2483,7 +2713,7 @@ function renderAnalyze() {
     h('label', { class: 'field', for: 'az-user' }, 'Usuario', user),
     h('div', { class: 'row' }, h('button', { class: 'btn primary', type: 'submit', disabled: AZ.loading ? true : null }, AZ.loading ? 'Buscando…' : 'Buscar mis partidas')),
     AZ.fetchErr ? h('div', { class: 'notice bad' }, AZ.fetchErr) : null);
-  root.append(form);
+  root.append(form, diagCard(user));
 
   // PGN
   const ta = h('textarea', { id: 'az-pgn', placeholder: '[Event "Live Chess"]\n1. e4 e5 2. Nf3 …', 'aria-label': 'PGN de la partida' });
@@ -2543,7 +2773,9 @@ async function fetchGames(user) {
   AZ.loading = false; renderAnalyze();
 }
 function userErr(msg) { const e = new Error(msg); e.userMsg = msg; return e; }
-async function fetchChessCom(user) {
+// max: cuántas partidas traer (25 para la lista; el diagnóstico de Karen pide más). Para más de 25 se revisan
+// más meses hacia atrás, hasta dos años.
+async function fetchChessCom(user, max = 25) {
   const u = user.toLowerCase();
   const a = await fetch(`https://api.chess.com/pub/player/${encodeURIComponent(u)}/games/archives`);
   if (a.status === 404) throw userErr(`No existe el usuario "${user}" en Chess.com.`);
@@ -2551,24 +2783,25 @@ async function fetchChessCom(user) {
   const { archives = [] } = await a.json();
   const out = [];
   // solo se siguen direcciones de la API de Chess.com
-  for (const url of archives.filter(x => typeof x === 'string' && x.startsWith('https://api.chess.com/pub/player/')).slice(-3).reverse()) {
+  for (const url of archives.filter(x => typeof x === 'string' && x.startsWith('https://api.chess.com/pub/player/')).slice(max > 25 ? -24 : -3).reverse()) {
     const r = await fetch(url); if (!r.ok) continue;
     const j = await r.json();
     for (const g of (j.games || []).slice().reverse()) {
-      if (g.rules !== 'chess' || !g.pgn) continue;
-      const white = g.white.username.toLowerCase() === u;
+      if (g.rules !== 'chess' || !g.pgn || !g.white || !g.black) continue;
+      const white = String(g.white.username).toLowerCase() === u;
       const me = white ? g.white : g.black, op = white ? g.black : g.white;
       out.push({ id: g.url || hash(g.pgn), pgn: g.pgn, userColor: white ? 'w' : 'b', opp: op.username, oppRating: op.rating, userRating: me.rating,
         userResult: me.result === 'win' ? 'win' : ['agreed', 'repetition', 'stalemate', 'insufficient', '50move', 'timevsinsufficient'].includes(me.result) ? 'draw' : 'loss',
         timeClass: { bullet: 'Bullet', blitz: 'Blitz', rapid: 'Rápida', daily: 'Diaria' }[g.time_class] || g.time_class,
+        ts: g.end_time ? g.end_time * 1000 : 0,
         date: g.end_time ? new Date(g.end_time * 1000).toLocaleDateString('es-MX', { day: 'numeric', month: 'short' }) : '' });
-      if (out.length >= 25) return out;
+      if (out.length >= max) return out;
     }
   }
   return out;
 }
-async function fetchLichess(user) {
-  const r = await fetch(`https://lichess.org/api/games/user/${encodeURIComponent(user)}?max=25&pgnInJson=true&opening=true`, { headers: { Accept: 'application/x-ndjson' } });
+async function fetchLichess(user, max = 25) {
+  const r = await fetch(`https://lichess.org/api/games/user/${encodeURIComponent(user)}?max=${max}&pgnInJson=true&opening=true`, { headers: { Accept: 'application/x-ndjson' } });
   if (r.status === 404) throw userErr(`No existe el usuario "${user}" en Lichess.`);
   if (!r.ok) throw userErr('Lichess no respondió. Intenta de nuevo en un momento.');
   const text = await r.text(); const out = [];
@@ -2581,6 +2814,7 @@ async function fetchLichess(user) {
     out.push({ id: 'li-' + g.id, pgn: g.pgn, userColor: white ? 'w' : 'b', opp: op.user ? op.user.name : (op.aiLevel ? 'Stockfish nivel ' + op.aiLevel : 'Anónimo'), oppRating: op.rating, userRating: me.rating,
       userResult: !g.winner ? 'draw' : (g.winner === (white ? 'white' : 'black') ? 'win' : 'loss'),
       timeClass: { bullet: 'Bullet', blitz: 'Blitz', rapid: 'Rápida', classical: 'Clásica', correspondence: 'Correspondencia', ultraBullet: 'UltraBullet' }[g.speed] || g.speed,
+      ts: +g.createdAt || 0,
       date: new Date(g.createdAt).toLocaleDateString('es-MX', { day: 'numeric', month: 'short' }) });
   }
   return out;
@@ -2589,7 +2823,8 @@ function renderGameList(root) {
   root.append(h('div', { class: 'play-head' },
     h('button', { class: 'icon-btn', 'aria-label': 'Volver', onclick: () => { AZ.view = 'home'; renderAnalyze(); } }, icon('i-close')),
     h('div', { class: 't' }, h('div', { class: 'k' }, S.settings.platform === 'lichess' ? 'Lichess' : 'Chess.com'), h('h2', null, 'Partidas de ' + S.settings.user))));
-  root.append(h('p', { class: 'muted', style: { marginTop: 0 } }, 'Empieza por una derrota: ahí están los errores que más puntos te cuestan.'));
+  root.append(diagCard(null));
+  root.append(h('p', { class: 'muted' }, 'O revisa una por una. Empieza por una derrota: ahí están los errores que más puntos te cuestan.'));
   const box = h('div', { class: 'games' });
   for (const g of AZ.list) box.append(gameRow(g, () => openGame(g)));
   root.append(box);
@@ -2619,12 +2854,19 @@ function hydrate(G) {
   return Object.assign({}, G, { fens, ucis, sans });
 }
 const stripComments = pgn => pgn.replace(/\{[^}]*\}/g, '').replace(/\$\d+/g, '').replace(/[ \t]+/g, ' ');
+// Las primeras jugadas de la línea del motor (para que Karen explique qué pasaba y qué era mejor)
+const PV_KEEP = 8;
+const pvStr = pv => (Array.isArray(pv) ? pv.slice(0, PV_KEEP).filter(u => /^[a-h][1-8][a-h][1-8][qrbn]?$/.test(u)).join(' ') : '');
 async function openGame(g) {
+  AZ.back = null;
+  // una partida que Karen acaba de revisar en el diagnóstico se abre al instante (queda en memoria)
+  const mem = AZ.cache[g.id];
+  if (mem && mem.done) { AZ.analysis = mem; AZ.idx = 0; AZ.view = 'analysis'; return renderAnalyze(); }
   const prev = S.games.find(x => x.v === 2 && x.id === g.id && x.depth >= S.settings.depth);
   if (prev) { AZ.analysis = hydrate(prev); AZ.idx = 0; AZ.view = 'analysis'; return renderAnalyze(); }
   const base = hydrate({ v: 2, id: g.id, pgn: stripComments(g.pgn), userColor: g.userColor, opp: g.opp, oppRating: g.oppRating, userResult: g.userResult, timeClass: g.timeClass, date: g.date, depth: S.settings.depth });
   if (!base || !base.ucis.length) { toast('No pude leer esa partida.'); return; }
-  const A = Object.assign(base, { cps: [], best: [], cps2: [], done: false });
+  const A = Object.assign(base, { cps: [], best: [], cps2: [], pvs: [], done: false });
   AZ.analysis = A; AZ.idx = 0; AZ.view = 'analysis';
   const token = {}; AZ.running = token;
   renderAnalyze();
@@ -2635,16 +2877,15 @@ async function openGame(g) {
   for (let i = 0; i < A.fens.length; i++) {
     if (AZ.running !== token) return;
     const ev = await engine.analyze(A.fens[i], A.depth, 2);
-    A.cps[i] = Math.round(ev.cp); A.best[i] = ev.best; A.cps2[i] = ev.cp2 == null ? null : Math.round(ev.cp2);
+    A.cps[i] = Math.round(ev.cp); A.best[i] = ev.best; A.cps2[i] = ev.cp2 == null ? null : Math.round(ev.cp2); A.pvs[i] = pvStr(ev.pv);
     updateProgress(i + 1, A.fens.length, Date.now() - t0);
   }
   await loadOpenings();
   if (AZ.running !== token) return;
   AZ.running = null;
-  const mine0 = S.mine.length;
-  finalizeAnalysis(A);
+  // Karen lo cuenta en su globo, junto al tablero (con los errores nuevos que quedaron para practicar)
+  A.added = finalizeAnalysis(A) || 0;
   Sound.play('done');
-  if (A.id !== 'sample') setTimeout(() => { if (AZ.analysis === A) Mascot.react('analysis', { n: Math.max(0, S.mine.length - mine0) }); }, 900);
   renderAnalyze();
 }
 function updateProgress(done, total, ms) {
@@ -2656,6 +2897,40 @@ function updateProgress(done, total, ms) {
   }
 }
 function finalizeAnalysis(A) {
+  classifyAnalysis(A);
+  if (A.id === 'sample') return;
+  const added = pushMine(A);
+  // se guarda sin posiciones (se reconstruyen del PGN) y solo con las líneas del motor que Karen usa para explicar
+  const slim = Object.assign({}, A); delete slim.fens; delete slim.ucis; delete slim.sans; delete slim.error;
+  if (Array.isArray(A.pvs)) { const need = pvNeeded(A); slim.pvs = A.pvs.map((p, i) => (need.has(i) ? p || '' : '')); }
+  S.games = S.games.filter(g => g.v === 2 && g.id !== A.id); S.games.push(slim);
+  if (S.games.length > 12) S.games = S.games.slice(-12);
+  save();
+  return added;
+}
+const ERRISH = new Set(['inaccuracy', 'mistake', 'miss', 'blunder']);
+function pvNeeded(A) { const need = new Set(); (A.cls || []).forEach((c, i) => { if (ERRISH.has(c)) { need.add(i); need.add(i + 1); } }); return need; }
+// Cada error de tu partida se vuelve un puzzle personal, con lo necesario para que Karen te lo explique después.
+// Si la lista crece mucho (más de MINE_MAX) salen primero los ya corregidos y luego los más viejos.
+function pushMine(A) {
+  let added = 0;
+  A.ucis.forEach((u, i) => {
+    if (A.fens[i].split(' ')[1] !== A.userColor || !TRAIN.has(A.cls[i]) || !A.best[i]) return;
+    const id = A.id + '#' + i;
+    if (S.mine.some(m => m.id === id)) return;
+    const pv = A.pvs ? A.pvs[i] || '' : '', ref = A.pvs ? A.pvs[i + 1] || '' : '';
+    S.mine.push({ id, fen: A.fens[i], best: A.best[i], bestCp: A.cps[i], played: u, prev: i > 0 ? A.ucis[i - 1] : null, moveNo: Math.floor(i / 2) + 1, opp: A.opp, cat: A.cats[i], cls: A.cls[i], gameId: A.id,
+      cpA: A.cps[i + 1], pv, ref, ps: i > 0 ? A.sans[i - 1] : '', ply: i, date: A.date || '' });
+    added++;
+  });
+  if (S.mine.length > MINE_MAX) {
+    const pend = S.mine.filter(m => !m.mastered), room = Math.max(0, MINE_MAX - pend.length);
+    const keep = new Set([...pend.slice(-MINE_MAX), ...(room ? S.mine.filter(m => m.mastered).slice(-room) : [])].map(m => m.id));
+    S.mine = S.mine.filter(m => keep.has(m.id));
+  }
+  return added;
+}
+function classifyAnalysis(A) {
   const n = A.ucis.length; A.cls = []; A.cats = [];
   const accs = [];
   let inBook = !!OPENINGS; A.opening = null;
@@ -2713,19 +2988,6 @@ function finalizeAnalysis(A) {
     if (color === A.userColor && A.cats[i]) cats[A.cats[i]] = (cats[A.cats[i]] || 0) + 1;
   });
   A.catCounts = cats; A.done = true;
-  if (A.id === 'sample') return;
-  // puzzles personales
-  A.ucis.forEach((u, i) => {
-    if (A.fens[i].split(' ')[1] !== A.userColor || !TRAIN.has(A.cls[i]) || !A.best[i]) return;
-    const id = A.id + '#' + i;
-    if (S.mine.some(m => m.id === id)) return;
-    S.mine.push({ id, fen: A.fens[i], best: A.best[i], bestCp: A.cps[i], played: u, prev: i > 0 ? A.ucis[i - 1] : null, moveNo: Math.floor(i / 2) + 1, opp: A.opp, cat: A.cats[i], cls: A.cls[i], gameId: A.id });
-  });
-  if (S.mine.length > 150) S.mine = S.mine.filter(m => !m.mastered).slice(-150);
-  const slim = Object.assign({}, A); delete slim.fens; delete slim.ucis; delete slim.sans; delete slim.error;
-  S.games = S.games.filter(g => g.v === 2 && g.id !== A.id); S.games.push(slim);
-  if (S.games.length > 12) S.games = S.games.slice(-12);
-  save();
 }
 function categorize(A, i, color) {
   const sgn = color === 'w' ? 1 : -1;
@@ -2750,7 +3012,7 @@ function renderAnalysis(root) {
   const A = AZ.analysis;
   const userName = A.userColor === 'w' ? 'blancas' : 'negras';
   root.append(h('div', { class: 'play-head' },
-    h('button', { class: 'icon-btn', 'aria-label': 'Volver', onclick: () => { AZ.running = null; AZ.view = AZ.list.length ? 'list' : 'home'; renderAnalyze(); } }, icon('i-close')),
+    h('button', { class: 'icon-btn', 'aria-label': 'Volver', onclick: () => { AZ.running = null; AZ.line = null; AZ.view = AZ.back || (AZ.list.length ? 'list' : 'home'); AZ.back = null; renderAnalyze(); } }, icon('i-close')),
     h('div', { class: 't' }, h('div', { class: 'k' }, `Tú con ${userName}${A.date ? ' · ' + A.date : ''}`), h('h2', null, `vs ${A.opp || 'Rival'}`))));
   if (A.error) { root.append(h('div', { class: 'notice bad' }, A.error)); return; }
   if (!A.done) {
@@ -2764,18 +3026,16 @@ function renderAnalysis(root) {
   const grid = h('div', { class: 'az-grid' });
   const left = h('div', { class: 'az-left' });
   const right = h('div', { class: 'az-right' });
-  grid.append(left, right); root.append(grid);
+  grid.append(left, azCoachBox(), right); root.append(grid);
 
-  // izquierda: tablero, navegación y explicación
-  const host = h('div'); left.append(host);
+  // izquierda: tablero y navegación; Karen comenta debajo (en pantallas anchas, junto al tablero)
+  const host = h('div', { class: 'az-board' }); left.append(host);
   azBoard = new Board(host); azBoard.flip(A.userColor);
   left.append(h('div', { class: 'navrow' },
     h('button', { class: 'btn', 'aria-label': 'Inicio', onclick: () => goto(0) }, '⏮'),
     h('button', { class: 'btn', 'aria-label': 'Jugada anterior', onclick: () => goto(AZ.idx - 1) }, '◀'),
     h('button', { class: 'btn', 'aria-label': 'Jugada siguiente', onclick: () => goto(AZ.idx + 1) }, '▶'),
-    h('button', { class: 'btn', 'aria-label': 'Final', onclick: () => goto(A.ucis.length) }, '⏭')),
-    h('div', { id: 'az-caption', class: 'caption', 'aria-live': 'polite' }),
-    h('div', { class: 'cmp' }, h('span', null, h('i', { style: { background: 'var(--bad)' } }), 'Jugada hecha'), h('span', null, h('i', { style: { background: 'var(--good)' } }), 'Mejor jugada'), h('span', { class: 'muted kbd-hint' }, 'Usa ← y → en el teclado')));
+    h('button', { class: 'btn', 'aria-label': 'Final', onclick: () => goto(A.ucis.length) }, '⏭')));
 
   // derecha: resumen
   if (A.opening) right.append(h('div', { class: 'opening' }, h('span', { class: 'section-title' }, 'Apertura'), h('div', null, A.opening)));
@@ -2826,11 +3086,19 @@ function renderAnalysis(root) {
   });
   right.append(h('p', { class: 'section-title', style: { marginTop: '22px' } }, 'Jugadas'), ml,
     h('p', { class: 'credits' }, `Analizado con ${engine.name || 'Stockfish'} a profundidad ${A.depth}. Categorías al estilo Chess.com; la precisión usa la fórmula de Lichess. Aperturas: base abierta de Lichess.`));
+  // Karen empieza por tu primer error (con un resumen) o, si no hubo, por el resumen de la partida
   const first = errs[0] != null ? errs[0] : null;
-  if (first != null) goto(first, true); else goto(0);
+  if (first != null) {
+    const n = c => errs.filter(i => A.cls[i] === c).length, bl = n('blunder'), mi = n('mistake'), ms = n('miss');
+    AZ.coachIntro = 'Encontré ' + cJoin([bl && `${bl} ${bl > 1 ? 'errores graves' : 'error grave'}`, mi && `${mi} ${mi > 1 ? 'errores' : 'error'}`, ms && `${ms} ${ms > 1 ? 'oportunidades perdidas' : 'oportunidad perdida'}`].filter(Boolean))
+      + (A.added ? `; ${A.added > 1 ? 'ya están' : 'ya está'} en tu práctica` : '') + (errs.length > 1 ? '. Empecemos por el primero.' : '. Míralo:');
+    A.added = 0;
+    goto(first, true);
+  } else goto(0);
 }
 function goto(i, showBefore) {
   const A = AZ.analysis; if (!A || !azBoard) return;
+  if (AZ.line) AZ.line = null; // detiene una línea que se estaba mostrando
   if (showBefore) {
     // posición antes de la jugada i, con la jugada hecha (roja) y la mejor (verde)
     AZ.idx = i; AZ.before = true;
@@ -2838,7 +3106,7 @@ function goto(i, showBefore) {
     const arr = [{ from: A.ucis[i].slice(0, 2), to: A.ucis[i].slice(2, 4), color: 'var(--bad)' }];
     if (A.best[i] && A.best[i] !== A.ucis[i]) arr.push({ from: A.best[i].slice(0, 2), to: A.best[i].slice(2, 4), color: 'var(--good)' });
     azBoard.arrows(arr);
-    setCaption(i, true);
+    azCoach(i, true);
     markCurrent(i + 1, i);
     return;
   }
@@ -2859,41 +3127,13 @@ function goto(i, showBefore) {
       azBoard.arrows([{ from: A.best[i - 1].slice(0, 2), to: A.best[i - 1].slice(2, 4), color: 'var(--good)' }]);
     }
   }
-  setCaption(i, false);
+  azCoach(i - 1, false);
   markCurrent(i, null);
 }
 function reasonOf(A, i) {
   if (A.cls[i] === 'miss') return 'No aprovechaste el error de tu rival. ';
   const cat = A.cats[i];
   return cat && cat !== 'plan' ? CAT_ES[cat] + '. ' : '';
-}
-function moveText(A, k) {
-  const c = A.cls[k], better = A.best[k] && A.best[k] !== A.ucis[k] ? es(sanOf(A.fens[k], A.best[k])) : null;
-  const mineMove = A.fens[k].split(' ')[1] === A.userColor;
-  switch (c) {
-    case 'brilliant': return mineMove ? '¡Brillante! Sacrificaste material y era de las mejores jugadas.' : 'Brillante: sacrificio correcto de tu rival.';
-    case 'great': return 'Gran jugada: era la única buena en esta posición.';
-    case 'best': return 'La mejor jugada.';
-    case 'excellent': return 'Excelente: casi tan buena como la mejor.' + (better ? ` La del motor era ${better}.` : '');
-    case 'good': return 'Buena jugada.' + (better ? ` Lo mejor era ${better}.` : '');
-    case 'book': return 'Jugada de libro: teoría de aperturas.';
-    case 'forced': return 'Jugada forzada: era la única legal.';
-    case 'inaccuracy': return `Imprecisión. Lo mejor era ${better}.`;
-    case 'mistake': return `Error${mineMove && A.cats[k] && A.cats[k] !== 'plan' ? ': ' + CAT_ES[A.cats[k]].toLowerCase() : ''}. Lo mejor era ${better}.`;
-    case 'miss': return `Oportunidad perdida: ${mineMove ? 'tu rival se había equivocado y no lo aprovechaste' : 'no aprovechó tu error'}. Lo mejor era ${better}.`;
-    case 'blunder': return `Error grave${mineMove && A.cats[k] && A.cats[k] !== 'plan' ? ': ' + CAT_ES[A.cats[k]].toLowerCase() : ''}. Lo mejor era ${better}.`;
-  }
-  return '';
-}
-function setCaption(i, before) {
-  const A = AZ.analysis; const el = $('#az-caption'); if (!el) return; el.textContent = '';
-  const fmt = cp => Math.abs(cp) >= 9000 ? (cp > 0 ? '+M' + Math.round((10000 - cp) / 10) : '−M' + Math.round((10000 + cp) / 10)) : (cp > 0 ? '+' : cp < 0 ? '−' : '') + (Math.abs(cp) / 100).toFixed(1);
-  const k = before ? i : i - 1;
-  if (k < 0) { el.append('Posición inicial. Toca una jugada o un momento clave para revisarlo.'); return; }
-  const c = A.cls[k];
-  el.append(h('span', { class: 'cap-head' }, clsChip(c), h('strong', null, `${Math.floor(k / 2) + 1}${k % 2 === 0 ? '.' : '…'} ${es(A.sans[k])}`), h('span', { class: 'mono muted' }, fmt(A.cps[k + 1]))),
-    h('span', null, moveText(A, k)));
-  if (before) el.append(h('span', { class: 'muted', style: { fontSize: '14px' } }, 'Ves la posición antes de la jugada. Pulsa ▶ para ver qué pasó.'));
 }
 function markCurrent(posIdx, momentIdx) {
   for (const b of $$('#az-moves button')) b.setAttribute('aria-current', +b.dataset.i === posIdx ? 'true' : 'false');

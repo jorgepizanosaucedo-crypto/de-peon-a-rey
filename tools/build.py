@@ -289,8 +289,8 @@ def main(argv):
     counts = {k: len(v) for k, v in data["worlds"].items()}
     print("puzzles por mundo:", counts, "total", sum(counts.values()))
     rd = lambda name: open(os.path.join(SRC, name), encoding="utf-8").read()
-    # un solo script: contenido de la Escuela, funciones de la Escuela y la app (en ese orden)
-    app_js = rd("lessons.js") + "\n" + rd("school.js") + "\n" + rd("app.js")
+    # un solo script: contenido de la Escuela, funciones de la Escuela, el duelo, Karen entrenadora y la app (en ese orden)
+    app_js = rd("lessons.js") + "\n" + rd("school.js") + "\n" + rd("duel.js") + "\n" + rd("coach.js") + "\n" + rd("app.js")
     tpl, sample, css = rd("app.template.html"), rd("sample.json"), rd("styles.css")
     page = (tpl.replace("{{STYLES}}", css.strip())
                .replace("{{PIECES}}", pieces_defs())

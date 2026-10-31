@@ -41,12 +41,15 @@
 - **Escuela de Karen:** 56 lecciones en 11 bloques. Primero lo básico para quien nunca ha jugado (el tablero, cada pieza, las reglas, los primeros mates y una partida contra Karen) y luego la teoría en el orden que recomiendan entrenadores y libros: principios de apertura, finales esenciales, partidas abiertas, gambitos, 1.d4, defensas contra 1.e4 y 1.d4, aperturas de flanco y planes del medio juego. Cada lección es corta: Karen explica, practicas en el tablero y al final juegas contra ella. Cada bloque te da un título, de Peón curioso a Rey de la teoría.
 - **Mapa de niveles:** ocho mundos de táctica (mate en 1, piezas colgadas, defensa, horquillas, mate en 2, clavadas, ataques descubiertos y táctica mixta) con 138 niveles en total, hasta 20 por mundo. Repetir un nivel trae puzzles nuevos.
 - **Modo infinito:** puzzles sin fin que mezclan todos los mundos y se ponen más difíciles con cada acierto. Tres corazones, un nivel nuevo cada 5 puzzles y tu récord para superar.
+- **Un nivel secreto:** cuando termines todos los mundos y todas las lecciones, Karen tiene algo preparado. No te diremos qué es.
 - **Rangos de Peón a Rey:** tu pieza sube con rating táctico y mundos completados. Para Rey: 1500 y todos los niveles con 3 estrellas.
 - **Defensa:** puzzles donde primero descubres qué amenaza tu rival y luego te defiendes.
 - **Reto diario:** cinco puzzles iguales para todos cada día, con resultado para compartir.
-- **Revisión de partidas:** trae tus partidas de Chess.com o Lichess, Stockfish califica cada jugada como lo hace Chess.com y tus errores se vuelven puzzles.
+- **Revisión de partidas:** trae tus partidas de Chess.com o Lichess y Stockfish califica cada jugada como lo hace Chess.com. Karen te comenta cada jugada: qué hiciste bien, qué estuvo mal, qué podía hacer tu rival y cuál era la mejor, y te muestra la línea en el tablero.
+- **Diagnóstico de Karen:** revisa de una vez tus últimas 20, 50 o 100 partidas y te dice qué errores repites, en qué parte de la partida fallas más, qué piezas pierdes, cómo te va con cada apertura y qué practicar.
+- **Practica con tus errores:** cada error de tus partidas se vuelve un puzzle, agrupado por tipo (piezas sin defensa, tácticas que no ves, mates…). Al resolverlo o fallarlo, Karen te explica qué pasó en tu partida.
 - **Karen, la mascota:** da el tutorial, enseña en la Escuela y te aconseja de vez en cuando, con cientos de frases distintas. Pone cara y gesto según lo que dice (señala lo que te está explicando, levanta el puño o el pulgar cuando aciertas, saluda con ✌ y guiño, se pone nerviosa cuando algo sale mal…), parpadea, mueve la boca al hablar y sostiene la lupa cuando analiza.
-- **Detalles:** música tranquila en los menús y lo-fi para estudiar en la Escuela, foto de perfil, varios perfiles en la misma computadora y cuentas opcionales para sincronizar entre dispositivos.
+- **Detalles:** música tranquila en los menús, lo-fi para estudiar en la Escuela y un tema propio para el duelo, foto de perfil, varios perfiles en la misma computadora y cuentas opcionales para sincronizar entre dispositivos.
 
 ## Cómo está hecho
 

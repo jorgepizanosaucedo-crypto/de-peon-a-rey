@@ -114,6 +114,7 @@ function renderSchool() {
   }
   for (const b of blocks.filter(x => x.kind === 'theory')) root.append(schBlockCard(b, ++num, rec));
   root.append(h('p', { class: 'credits' }, 'Cada posición y cada jugada de las lecciones se revisó con Stockfish. Las aperturas siguen las líneas principales de la teoría; sus nombres vienen del libro de aperturas de Lichess.'));
+  duelMaybeIntro(); // si con esta lección terminaste todo, aparece el nivel secreto
 }
 function schBlockCard(b, num, rec) {
   const done = blockDone(b), closed = b.kind === 'theory' && !schTheoryOpen();
